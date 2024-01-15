@@ -20,7 +20,7 @@ unsigned char int14_init(void)
 {
   regs.x.dx=0;
   regs.h.ah=0x04; // Extended initialize (for FOSSIL)
-  regs.h.cl=8;    // 19200 bps
+  regs.h.cl=7;    // 9600 bps
   regs.h.ch=3;    // 8 bits
   regs.h.bh=0;    // No parity
   regs.h.bl=0;    // 1 stop bit

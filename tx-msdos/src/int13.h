@@ -12,9 +12,9 @@
 #define INT13_H
 
 typedef struct {
-  short c; /* Cylinders */
-  short h; /* Heads */
-  short s; /* Sectors per Track */
+  unsigned short c; /* Cylinders */
+  unsigned short h; /* Heads */
+  unsigned short s; /* Sectors per Track */
 } DiskGeometry;
 
 #define AH_READ_DISK_SECTORS    0x02
@@ -28,6 +28,6 @@ unsigned char int13_disk_geometry(DiskGeometry* geometry);
 /**
  * Read sector given CHS
  */
-unsigned char int13_read_sector(short c, unsigned char h, unsigned char s, char* buf);
+unsigned char int13_read_sector(unsigned short c, unsigned short h, unsigned short s, char* buf);
 
 #endif /* INT13_H */

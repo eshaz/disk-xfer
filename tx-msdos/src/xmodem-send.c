@@ -20,9 +20,10 @@
 
 ProtocolState state=START;
 unsigned char block_num=1;
-short cylinder=0;
-unsigned char head=0;
-unsigned char sector=1;
+unsigned short cylinder=0;
+unsigned short head=0;
+unsigned short sector=1;
+unsigned int start = 0;
 char* buf;
 DiskGeometry geometry;
 
@@ -52,7 +53,7 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
 /**
  * XMODEM-512 send file - main entrypoint.
  */
-void xmodem_send(void)
+void xmodem_send(unsigned int start_sector)
 {
   buf=malloc(512);
 
@@ -62,6 +63,15 @@ void xmodem_send(void)
       free(buf);
       return;
     }
+
+  // increment disk geometry until the desired sector is reached
+  while (start<start_sector)
+    {
+      xmodem_set_next_sector();
+      start++;
+    }
+
+  printf("Starting read at sector %u.\n");
   
   while (state!=END)
     {
@@ -120,7 +130,7 @@ void xmodem_state_block(void)
   unsigned short calced_crc;
   if (int13_read_sector(cylinder,head,sector,buf)==0)
     {
-      printf("Sending Cylinder: %4d, Head: %2d, Sector: %2d...",cylinder,head,sector);
+      printf("Sending Cylinder: %u, Head: %u, Sector: %u...",cylinder,head,sector);
 
       int14_send_byte(0x01);  // SOH
       int14_send_byte(block_num); // block # (mod 256)
@@ -137,7 +147,7 @@ void xmodem_state_block(void)
     }
   else
     {
-      printf("Could not read C: %4d, H: %2d, S: %2d from drive. Cancelling.\n",cylinder,head,sector);
+      printf("Could not read C: %u, H: %u, S: %u from drive. Cancelling.\n",cylinder,head,sector);
       int14_send_byte(0x18); // CANCEL
       state=END;
     }
@@ -170,7 +180,7 @@ void xmodem_state_check(void)
           state=END;   // end.
           break;
         default:
-          printf("Unknown Byte: 0x%02d: %c",b,b);
+          printf("Unknown Byte: 0x%02X: %c",b,b);
         }
     }
 }

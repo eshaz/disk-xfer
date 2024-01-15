@@ -36,7 +36,7 @@ unsigned char int13_disk_geometry(DiskGeometry* geometry)
 /**
  * Read sector given CHS
  */
-unsigned char int13_read_sector(short c, unsigned char h, unsigned char s, char* buf)
+unsigned char int13_read_sector(unsigned short c, unsigned short h, unsigned short s, char* buf)
 {
   // Perform the read.
   regs.h.ah=AH_READ_DISK_SECTORS;
