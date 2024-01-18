@@ -11,11 +11,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "int14.h"
-#include "xmodem-send.h"
+#include "xm-send.h"
 
 #define BUFFER_SIZE 512
 
-static int atoui(char *in, unsigned int *out) 
+static int atoul(char *in, unsigned long *out) 
 {
     char *p;
 
@@ -28,26 +28,25 @@ return 0;
 }
 
 int main(int argc, char* argv[])
-{  
+{
   // start from a sector if we left off
-  unsigned int start_sector = 0;
+  unsigned long start_block = 0;
   int error = 0;
   if (argc >= 2) {
-    error = atoui(argv[1], &start_sector);
+    error = atoul(argv[1], &start_block);
     if (error) {
-      printf("Usage: tx start_sector\n");
+      printf("Usage: tx [start_block]");
       return 1;
     }
   }
 
-  error = int14_init();
-  if (error) {
-    printf("Failed to initialize serial port\n");
-    return 1;
+  if (int14_init()) {
+    printf("WARNING: Failed to initialize serial port.\n");
+    printf("WARNING: You may need to configure the serial port using `mode`.\n");
   }
-  printf("serial port initialized.\n");
   
-  xmodem_send(start_sector);
+  xmodem_send(start_block);
+  clean_up();
     
   return 0;
 }

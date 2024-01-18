@@ -16,7 +16,7 @@ union REGS regs;
 /**
  * Get disk Geometry
  */
-unsigned char int13_disk_geometry(DiskGeometry* geometry)
+unsigned char int13_disk_geometry(CHS* geometry)
 {
   // BIOS call to get disk geometry.
   regs.h.ah=AH_GET_DRIVE_PARAMETERS;
@@ -36,17 +36,17 @@ unsigned char int13_disk_geometry(DiskGeometry* geometry)
 /**
  * Read sector given CHS
  */
-unsigned char int13_read_sector(unsigned short c, unsigned short h, unsigned short s, char* buf)
+unsigned char int13_read_sector(CHS* read_position, char* buf)
 {
   // Perform the read.
   regs.h.ah=AH_READ_DISK_SECTORS;
-  regs.h.al=1;                       // 1 sector.
-  regs.h.dh=h;
-  regs.h.dl=0x80;                    // first hd
+  regs.h.al=1;                               // 1 sector.
+  regs.h.dh=read_position->h;
+  regs.h.dl=0x80;                            // first hd
   regs.x.bx=(short)buf;
-  regs.h.ch=c&0xFF;                  // cyl low
-  regs.h.cl=s;
-  regs.h.cl|=((c >> 2)&0xC0);        // sector / cyl high */
+  regs.h.ch=read_position->c&0xFF;           // cyl low
+  regs.h.cl=read_position->s;
+  regs.h.cl|=((read_position->c >> 2)&0xC0); // sector / cyl high */
   int86(0x13,&regs,&regs);
 
   // 0 if successful, 1 if not.
