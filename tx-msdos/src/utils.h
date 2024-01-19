@@ -11,7 +11,7 @@ void print_welcome(Disk* disk, double bytes_per_second);
 
 void print_status(Disk* disk, double bytes_per_second);
 
-void print_bad_sectors_status(Disk* disk);
+void print_read_errors_status(Disk* disk);
 
 int interrupt_handler(Disk* disk, double bytes_per_second);
 

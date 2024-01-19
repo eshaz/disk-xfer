@@ -16,7 +16,7 @@
 
 #define START_DELAY_TIME_MS  3000 // approx 3 secs.
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
-#define MAX_READ_RETRY_COUNT 20   // number of times to retry when a read error / bad sector is encountered
+#define MAX_READ_RETRY_COUNT 20   // number of times to retry when a read error is encountered
 #define READ_RETRY_DELAY_MS  100  // delay introduced when retrying to read
 #define DISK_RESET_INTERVAL  2    // interval to reset the disk heads when an error occurs
 
@@ -192,7 +192,7 @@ void xmodem_state_block(void)
       // retries failed
       print_update("Err : ", " Failed.\n", disk);
       printf("Err : Data may be corrupted ... ");
-      add_bad_sector(disk);
+      add_read_error(disk);
       int13_reset_disk_system(disk);
       // send whatever was read
       int13_read_sector(disk, buf);

@@ -3,18 +3,18 @@
 #include "utils.h"
 #include "disk.h"
 
-static void iterate_bad_sectors(Disk* disk, void (*operation) (BadSector* bs)) {
-  BadSector* bs = disk->bad_sector_head;
-  if (bs) {
+static void iterate_read_errors(Disk* disk, void (*operation) (ReadError* re)) {
+  ReadError* re = disk->read_error_head;
+  if (re) {
     do {
-      operation(bs);
-      bs = bs->next;
-    } while (bs);
+      operation(re);
+      re = re->next;
+    } while (re);
   }
 }
 
-static void print_bad_sector(BadSector* bs) {
-    printf(" Block: %lu, Code: 0x%02X, %s.\n", bs->sector, bs->status_code, bs->status_msg);
+static void print_read_error(ReadError* re) {
+    printf(" Block: %lu, Code: 0x%02X, %s.\n", re->sector, re->status_code, re->status_msg);
 }
 
 Disk* create_disk() {
@@ -34,14 +34,14 @@ Disk* create_disk() {
   disk->current_byte = 0;
   disk->status_code = 0;
   disk->status_msg = "";
-  // bad sector information linked list
-  disk->bad_sector_head = 0;
-  disk->bad_sector_tail = 0;
+  // read error information linked list
+  disk->read_error_head = 0;
+  disk->read_error_tail = 0;
   return disk;
 }
 
 void free_disk(Disk* disk) {
-  iterate_bad_sectors(disk, &free);
+  iterate_read_errors(disk, &free);
   free(disk);
 }
 
@@ -54,27 +54,27 @@ void set_sector(Disk* disk, unsigned long sector) {
   disk->current_byte = sector*512;
 }
 
-void add_bad_sector(Disk* disk) {
-  BadSector* bs = malloc(sizeof(BadSector));
-  bs->sector = disk->current_sector;
-  bs->status_code = disk->status_code;
-  bs->status_msg = disk->status_msg;
-  bs->next = 0;
+void add_read_error(Disk* disk) {
+  ReadError* re = malloc(sizeof(ReadError));
+  re->sector = disk->current_sector;
+  re->status_code = disk->status_code;
+  re->status_msg = disk->status_msg;
+  re->next = 0;
 
-  if (disk->bad_sector_head == 0) {
+  if (disk->read_error_head == 0) {
     // create new list
-    disk->bad_sector_head = bs;
-    disk->bad_sector_tail = bs;
-  } else if (disk->bad_sector_tail->sector != bs->sector) {
+    disk->read_error_head = re;
+    disk->read_error_tail = re;
+  } else if (disk->read_error_tail->sector != re->sector) {
     // append to list
-    disk->bad_sector_tail->next = bs;
-    disk->bad_sector_tail = bs;
+    disk->read_error_tail->next = re;
+    disk->read_error_tail = re;
   } else {
     // discard duplicate
-    free(bs);
+    free(re);
   }
 }
 
-void print_bad_sectors(Disk* disk) {
-  iterate_bad_sectors(disk, &print_bad_sector);
+void print_read_errors(Disk* disk) {
+  iterate_read_errors(disk, &print_read_error);
 }

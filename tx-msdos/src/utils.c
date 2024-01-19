@@ -87,17 +87,17 @@ void print_status(Disk* disk, double bytes_per_second) {
   print_separator();
 }
 
-void print_bad_sectors_status(Disk* disk) {
-  printf("Bad Sectors...\n");
+void print_read_errors_status(Disk* disk) {
+  printf("Read Errors...\n");
   print_separator();
-  print_bad_sectors(disk);
+  print_read_errors(disk);
   print_separator();
 }
 
 static void print_help() {
   print_separator();
   printf(" Press `s` for the current status.\n");
-  printf(" Press `b` to get the list of bad sectors.\n");
+  printf(" Press `e` to get the list of read errors.\n");
   printf(" Press `CTRL-C` or `ESC` to abort the transfer.\n");
   printf(" Press any other key for this help menu.\n");
   print_separator();
@@ -128,7 +128,7 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
   char prompt;
   char printed_status = 0;
   char printed_help = 0;
-  char printed_bad_sectors = 0;
+  char printed_read_errors = 0;
 
   while (kbhit()) {
     prompt = getch();
@@ -141,10 +141,10 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
       printf("\n");
       print_status(disk, bytes_per_second);
       printed_status = 1;
-    } else if ((prompt == 'b' || prompt == 'B') && !printed_bad_sectors) {
+    } else if ((prompt == 'e' || prompt == 'E') && !printed_read_errors) {
       printf("\n");
-      print_bad_sectors_status(disk);
-      printed_bad_sectors = 1;
+      print_read_errors_status(disk);
+      printed_read_errors = 1;
     } else if (!printed_help) {
       printf("\n");
       print_help();
@@ -195,7 +195,7 @@ int save_report(Disk* disk, unsigned long start_sector, double bytes_per_second)
     print_status(disk, bytes_per_second);
     printf("\n");
     
-    print_bad_sectors_status(disk);
+    print_read_errors_status(disk);
     fflush(stdout);
   
     fd = close(fd);
