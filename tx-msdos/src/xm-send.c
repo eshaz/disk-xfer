@@ -9,31 +9,26 @@
  */
 
 #include <i86.h>
-#include <conio.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "utils.h"
 #include "xm-send.h"
 
 #define START_DELAY_TIME_MS  3000 // approx 3 secs.
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
-#define MAX_READ_RETRY_COUNT 20 // number of times to retry when a read error / bad sector is encountered
-#define READ_RETRY_DELAY_MS  15 // delay introduced when retrying to read
+#define MAX_READ_RETRY_COUNT 20   // number of times to retry when a read error / bad sector is encountered
+#define READ_RETRY_DELAY_MS  100  // delay introduced when retrying to read
+#define DISK_RESET_INTERVAL  2    // interval to reset the disk heads when an error occurs
 
 ProtocolState state=START;
 
 unsigned char block_num=1;
 char* buf;
-CHS* geometry;
-CHS* read_position;
-
-unsigned long current_block = 0;
-unsigned long total_blocks = 0;
-unsigned long total_bytes = 0;
-unsigned int baud_rate = 9600; // TODO: expose a user parameter
-unsigned char device_id = 0x80; // TODO: expose a user parameter
-unsigned long bits_per_second = 0;
+Disk* disk;
 
 char prompt;
+unsigned int baud_rate = 9600; // TODO: expose a user parameter
+double avg_bytes_per_sec = 0;
 
 /**
  * Calculate 16-bit CRC
@@ -58,141 +53,48 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
   return crc;
 }
 
-static void print_status() {
-  unsigned long total_seconds = (total_blocks - current_block) * 512 * 8 / bits_per_second;
-  printf("\n");
-  print_separator();
-  printf(" START  : Byte: ");
-  print_right_aligned(current_block * 512, total_bytes);
-  printf(" | Block: ");
-  print_right_aligned(current_block, total_blocks);
-  printf(" | ");
-  print_c_s_h(read_position, geometry);
-  printf("\n END    : Byte: ");
-  print_right_aligned(total_bytes, total_bytes);
-  printf(" | Block: ");
-  print_right_aligned(total_blocks, total_blocks);
-  printf(" | ");
-  print_c_s_h(geometry, geometry);
-  printf("\n");
-  print_separator();
-  printf(" ETA    : %d Hours, %d Minutes, %d Seconds @ %.2f kB/S\n",
-      (int)(total_seconds / 60 / 60),
-      (int)(total_seconds / 60) % 60,
-      (int)total_seconds % 60,
-      (float)bits_per_second / 8 / 1024
-    );
-  print_separator();
-}
-
-static void print_help() {
-  printf("\n");
-  print_separator();
-  printf(" Press `s` for the current status.\n");
-  printf(" Press `CTRL-C` or `ESC` to abort the transfer.\n");
-  printf(" Press any other key for this help menu.\n");
-  print_separator();
-}
-
-static void print_welcome() {
-  print_separator();
-  printf(" SOURCE : 0x%02X, C: drive",device_id);
-  print_status();
-  printf("\nBefore starting...\n");
-  print_separator();
-  printf(" 1. Connect your serial cable.\n");
-  printf(" 2. Start up `rx [serial_port] [file_name]` on Linux...\n");
-  print_separator();
-  printf("\nDuring the transfer...");
-  print_help();
-}
-
-static int prompt_to_continue() {
-  printf("\nStart Transfer? [y]: ");
-  prompt = getchar();
-  if (prompt != 'y' && prompt != 'Y' && prompt != '\n') {
-    printf("\nAborted.");
-    return 1;
-  }
-  return 0;
-}
-
-static void interrupt_handler() {
-  char printed_status = 0;
-  char printed_help = 0;
-
-  while (kbhit()) {
-    prompt = getch();
-    if (prompt == 3 || prompt == 27) {
-      printf("\nReceived Interrupt. Aborting transfer.\n");
-      int14_send_byte(0x18); // CANCEL
-      clean_up();
-      exit(1);
-    }
-
-    if ((prompt == 's' || prompt == 'S') && !printed_status) {
-      print_status();
-      printed_status = 1;
-    } else if (!printed_help) {
-      print_help();
-      printed_help = 1;
-    }
+static void catch_interrupt() {
+  if (interrupt_handler(disk, avg_bytes_per_sec)) {
+    printf("\nReceived Interrupt. Aborting transfer.\n");
+    int14_send_byte(0x18); // CANCEL
+    clean_up();
+    exit(1);
   }
 }
 
 void clean_up() {
-  free(geometry);
-  free(read_position);
+  free_disk(disk);
   free(buf);
 }
 
 /**
  * XMODEM-512 send file - main entrypoint.
  */
-void xmodem_send(unsigned long start_block)
+void xmodem_send(unsigned long start_sector)
 {
   buf=malloc(512);
-  geometry=malloc(sizeof(CHS));
-  geometry->c = 0;
-  geometry->h = 0;
-  geometry->s = 0;
-  read_position=malloc(sizeof(CHS));
-  read_position->c = 0;
-  read_position->h = 0;
-  read_position->s = 1;
+  disk=create_disk();
 
-  if (int13_disk_geometry(geometry)==1)
-    {
-      printf("FATAL: Could not retrieve disk geometry for device 0x%02X! Aborting.\n", device_id);
-      free(buf);
-      return;
-    }
+  if (int13_disk_geometry(disk)==1) {
+    printf("FATAL: Could not retrieve disk geometry for device 0x%02X! Aborting.\n", disk->device_id);
+    clean_up();
+    return;
+  }
 
-  total_blocks = (unsigned long)geometry->c * geometry->h * geometry->s;
+  if (start_sector > disk->total_sectors) {
+    printf("FATAL: Start block %lu was greater than device 0x%02X length!\n", start_sector, disk->device_id);
+    printf("FATAL: Device is %lu blocks in length. Aborting.\n", disk->total_sectors);
+    clean_up();
+    return;
+  }
 
-  // increment disk geometry until the desired block is reached
-  while (current_block<start_block)
-    {
-      interrupt_handler();
-      xmodem_set_next_sector();
-      if (state == END) {
-        printf("FATAL: Start block %lu was greater than device 0x%02X length!\n", start_block, device_id);
-        printf("FATAL: Device is %d blocks in length. Aborting.\n", total_blocks);
-        free(buf);
-        return;
-      }
-      current_block++;
-    }
-  
-  bits_per_second = baud_rate - 8 * 4; // baud rate + 1x Checksum, 2x CRC, 1x ACK
-  total_bytes = (total_blocks - current_block) * 512;
+  set_sector(disk, start_sector);
 
-  print_welcome();
-  if (prompt_to_continue()) return;
+  if (print_welcome(disk, avg_bytes_per_sec)) return; // user aborted
   
   while (state!=END)
     {
-      interrupt_handler();
+      catch_interrupt();
       switch (state)
         {
           case START:
@@ -214,7 +116,7 @@ void xmodem_send(unsigned long start_block)
 }
 
 /**
- * Send CRC START (0x43) character and delay for 3 seconds, waiting for SOH.
+ * Send CRC START (0x43) character and delay for 3 seconds, polling for SOH.
  */
 void xmodem_state_start()
 {
@@ -222,7 +124,7 @@ void xmodem_state_start()
   
   while (wait_time>0)
     {
-      interrupt_handler();
+      catch_interrupt();
       delay(1);
       wait_time--;
       if (int14_data_waiting()!=0)
@@ -246,34 +148,40 @@ void xmodem_state_block(void)
   short i=0;
   unsigned int read_retry = 0;
   unsigned short calced_crc;
-  unsigned char read_error = int13_read_sector(read_position, buf);
+  unsigned char read_error = int13_read_sector(disk, buf);
 
   // retry through read errors
   // it's normal to have known bad sectors on older disks
-  // TODO: save / display a report that lists all the bad sectors after transfer completes
+  // attempt to read and send something if it was output
   while (read_error && read_retry <= MAX_READ_RETRY_COUNT) {
-    interrupt_handler();
-    read_retry++;
-    print_update("Warn: ", "Read Error. Retrying ", geometry, read_position, current_block, total_blocks);
-    printf("%2d\r", read_retry);
+    catch_interrupt();
+
+    print_update("Warn: ", " Read Error. ", disk);
+    printf("%d\n", read_retry);
+    printf("Code: 0x%2X, %s.\n", disk->status_code, disk->status_msg);
+
+    if (!(read_retry % DISK_RESET_INTERVAL)) {
+      int13_reset_disk_system(disk);
+    }
 
     delay(READ_RETRY_DELAY_MS);
-    read_error = int13_read_sector(read_position, buf);
+    read_error = int13_read_sector(disk, buf);
+    read_retry++;
   }
   
   if (read_error)
     {
       // retries failed
-      // send NULL bytes
-      print_update("Err:  ", "Read Error. Limit Reached.\n", geometry, read_position, current_block, total_blocks);
-      printf("Err : Sending NULL ... ");
-
-      for (i=0;i<512;i++) // Send NULL
-        buf[i] = 0;
+      print_update("Err : ", " Failed.\n", disk);
+      printf("Err : Data may be corrupted ... ");
+      add_bad_sector(disk);
+      int13_reset_disk_system(disk);
+      // send whatever was read
+      int13_read_sector(disk, buf);
     }
   else
     {
-      print_update("Send: ", " ... ", geometry, read_position, current_block, total_blocks);
+      print_update("Send: ", " ... ", disk);
     }
 
   int14_send_byte(0x01);  // SOH
@@ -306,8 +214,12 @@ void xmodem_state_check(void)
           block_num++;
           block_num&=0xff;
           state=BLOCK;
-          xmodem_set_next_sector();  // so if we're at end, it can be overridden.
-          current_block++;
+          if (disk->current_sector >= disk->total_sectors) {
+            state=END;
+            printf("Transfer complete!\n");
+          } else {
+            set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
+          }
           break;
         case 0x15: // NAK
           printf("NAK!\n");
@@ -321,27 +233,4 @@ void xmodem_state_check(void)
           printf("Unknown Byte: 0x%02X: %c\n",b,b);
         }
     }
-}
-
-/**
- * Set next current_position.s (in response to ACK)
- */
-void xmodem_set_next_sector(void)
-{
-  if (read_position->s >= geometry->s)
-    {
-      read_position->s=1;
-      if (read_position->h >= geometry->h)
-        {
-          read_position->h=0;
-          if (read_position->c > geometry->c)
-            state=END;
-          else
-            read_position->c++;
-        }
-      else
-        read_position->h++;
-    }
-  else
-    read_position->s++;
 }
