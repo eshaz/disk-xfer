@@ -125,7 +125,7 @@ static void int13_set_status(Disk* disk) {
       case 0xCC: disk->status_msg = status_msgs[0x17]; break;
       case 0xE0: disk->status_msg = status_msgs[0x18]; break;
       case 0xFF: disk->status_msg = status_msgs[0x19]; break;
-      default: "unknown error"; break;
+      default: disk->status_msg = "unknown error"; break;
     }
   }
 }

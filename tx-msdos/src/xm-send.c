@@ -26,9 +26,18 @@ unsigned char block_num=1;
 char* buf;
 Disk* disk;
 
-char prompt;
+/**
+ * 1   SOH
+ * 1   Block #
+ * 1   Block # checksum
+ * 512 Data
+ * 2   CRC
+ * 1   ACK/NAK
+*/
 unsigned int baud_rate = 9600; // TODO: expose a user parameter
-double avg_bytes_per_sec = 0;
+unsigned char overhead_size = 6;
+unsigned int sector_size = 512;
+double bytes_per_second = 0;
 
 /**
  * Calculate 16-bit CRC
@@ -54,7 +63,7 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
 }
 
 static void catch_interrupt() {
-  if (interrupt_handler(disk, avg_bytes_per_sec)) {
+  if (interrupt_handler(disk, bytes_per_second)) {
     printf("\nReceived Interrupt. Aborting transfer.\n");
     int14_send_byte(0x18); // CANCEL
     clean_up();
@@ -72,7 +81,8 @@ void clean_up() {
  */
 void xmodem_send(unsigned long start_sector)
 {
-  buf=malloc(512);
+  bytes_per_second = (double)baud_rate / 8 - overhead_size;
+  buf=malloc(sector_size);
   disk=create_disk();
 
   if (int13_disk_geometry(disk)==1) {
@@ -89,11 +99,10 @@ void xmodem_send(unsigned long start_sector)
   }
 
   set_sector(disk, start_sector);
-
-  if (print_welcome(disk, avg_bytes_per_sec)) return; // user aborted
+  if (print_welcome(disk, bytes_per_second)) return; // user aborted
   
   while (state!=END)
-    {
+    { 
       catch_interrupt();
       switch (state)
         {
@@ -188,10 +197,10 @@ void xmodem_state_block(void)
   int14_send_byte(block_num); // block # (mod 256)
   int14_send_byte(0xFF-block_num); // 0xFF - BLOCK # (simple checksum)
 
-  for (i=0;i<512;i++)     // Send the data
+  for (i=0;i<sector_size;i++)     // Send the data
     int14_send_byte(buf[i]);
 
-  calced_crc=xmodem_calc_crc(buf,512);
+  calced_crc=xmodem_calc_crc(buf,sector_size);
   int14_send_byte((calced_crc>>8));       // CRC Hi
   int14_send_byte(calced_crc&0xFF);       // CRC Lo
 

@@ -5,8 +5,8 @@
 
 void print_update(char* prefix, char* message, Disk* disk);
 
-int print_welcome(Disk* disk, double avg_bytes_per_sec);
+int print_welcome(Disk* disk, double bytes_per_second);
 
-int interrupt_handler(Disk* disk, double avg_bytes_per_sec);
+int interrupt_handler(Disk* disk, double bytes_per_second);
 
 #endif /* UTILS_H */

@@ -57,8 +57,8 @@ void print_update(
     printf(message);
 }
 
-static void print_status(Disk* disk, double avg_bytes_per_sec) {
-  unsigned long total_seconds = (disk->total_bytes - disk->current_byte) / avg_bytes_per_sec;
+static void print_status(Disk* disk, double bytes_per_second) {
+  double eta = (double) (disk->total_bytes - disk->current_byte) / bytes_per_second;
   printf("\n");
   print_separator();
   printf(" START  : Byte: ");
@@ -75,11 +75,11 @@ static void print_status(Disk* disk, double avg_bytes_per_sec) {
   print_c_s_h(disk->geometry, disk->geometry);
   printf("\n");
   print_separator();
-  printf(" ETA    : %d Hours, %d Minutes, %d Seconds @ %.2f kB/S\n",
-      (int)(total_seconds / 60 / 60),
-      (int)(total_seconds / 60) % 60,
-      (int)total_seconds % 60,
-      (float)avg_bytes_per_sec / 1024
+  printf(" ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f kB/S\n",
+      (unsigned int)(eta / 60 / 60),
+      (unsigned int)(eta / 60) % 60,
+      (unsigned long)eta % 60,
+      (float)bytes_per_second / 1024
     );
   print_separator();
 }
@@ -101,12 +101,12 @@ static void print_help() {
   print_separator();
 }
 
-int print_welcome(Disk* disk, double avg_bytes_per_sec) {
+int print_welcome(Disk* disk, double bytes_per_second) {
   char prompt;
 
   print_separator();
   printf(" SOURCE : 0x%02X, C: drive",disk->device_id);
-  print_status(disk, avg_bytes_per_sec);
+  print_status(disk, bytes_per_second);
   printf("\nBefore starting...\n");
   print_separator();
   printf(" 1. Connect your serial cable.\n");
@@ -124,7 +124,7 @@ int print_welcome(Disk* disk, double avg_bytes_per_sec) {
   return 0;
 }
 
-int interrupt_handler(Disk* disk, double avg_bytes_per_sec) {
+int interrupt_handler(Disk* disk, double bytes_per_second) {
   char prompt;
   char printed_status = 0;
   char printed_help = 0;
@@ -137,7 +137,7 @@ int interrupt_handler(Disk* disk, double avg_bytes_per_sec) {
     }
 
     if ((prompt == 's' || prompt == 'S') && !printed_status) {
-      print_status(disk, avg_bytes_per_sec);
+      print_status(disk, bytes_per_second);
       printed_status = 1;
     } else if ((prompt == 'b' || prompt == 'B') && !printed_bad_sectors) {
       print_bad_sectors_status(disk);
