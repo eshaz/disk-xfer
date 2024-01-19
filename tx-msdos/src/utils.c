@@ -1,5 +1,7 @@
 #include <conio.h>
 #include <stdio.h>
+#include <io.h>
+#include <fcntl.h>
 #include "utils.h"
 
 static char get_number_length(unsigned long n) {
@@ -57,9 +59,10 @@ void print_update(
     printf(message);
 }
 
-static void print_status(Disk* disk, double bytes_per_second) {
+void print_status(Disk* disk, double bytes_per_second) {
   double eta = (double) (disk->total_bytes - disk->current_byte) / bytes_per_second;
-  printf("\n");
+  print_separator();
+  printf(" SOURCE : 0x%02X, C: drive\n",disk->device_id);
   print_separator();
   printf(" START  : Byte: ");
   print_right_aligned(disk->current_byte, disk->total_bytes);
@@ -84,15 +87,14 @@ static void print_status(Disk* disk, double bytes_per_second) {
   print_separator();
 }
 
-static void print_bad_sectors_status(Disk* disk) {
-  printf("\nBad Sectors...\n");
+void print_bad_sectors_status(Disk* disk) {
+  printf("Bad Sectors...\n");
   print_separator();
   print_bad_sectors(disk);
   print_separator();
 }
 
 static void print_help() {
-  printf("\n");
   print_separator();
   printf(" Press `s` for the current status.\n");
   printf(" Press `b` to get the list of bad sectors.\n");
@@ -101,24 +103,22 @@ static void print_help() {
   print_separator();
 }
 
-int print_welcome(Disk* disk, double bytes_per_second) {
-  char prompt;
-
-  print_separator();
-  printf(" SOURCE : 0x%02X, C: drive",disk->device_id);
+void print_welcome(Disk* disk, double bytes_per_second) {
   print_status(disk, bytes_per_second);
   printf("\nBefore starting...\n");
   print_separator();
-  printf(" 1. Connect your serial cable.\n");
-  printf(" 2. Start up `rx [serial_port] [file_name]` on Linux...\n");
+  printf(" Connect your serial cable from COM1 to your Linux receiver.\n");
   print_separator();
-  printf("\nDuring the transfer...");
+  printf("\nDuring the transfer...\n");
   print_help();
-  printf("\nStart Transfer? [y]: ");
+}
 
+int prompt_user(char* msg, char default_yes, char yes_key) {
+  char prompt;
+
+  printf(msg);
   prompt = getchar();
-  if (prompt != 'y' && prompt != 'Y' && prompt != '\n') {
-    printf("\nAborted.");
+  if (prompt == yes_key || (default_yes && prompt == '\n')) {
     return 1;
   }
   return 0;
@@ -132,20 +132,75 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
 
   while (kbhit()) {
     prompt = getch();
+    // CTRL-C or ESC
     if (prompt == 3 || prompt == 27) {
       return 1;
     }
 
     if ((prompt == 's' || prompt == 'S') && !printed_status) {
+      printf("\n");
       print_status(disk, bytes_per_second);
       printed_status = 1;
     } else if ((prompt == 'b' || prompt == 'B') && !printed_bad_sectors) {
+      printf("\n");
       print_bad_sectors_status(disk);
       printed_bad_sectors = 1;
     } else if (!printed_help) {
+      printf("\n");
       print_help();
       printed_help = 1;
     }
   }
   return 0;
+}
+
+int save_report(Disk* disk, unsigned long start_sector, double bytes_per_second) {
+  int fd = 0;
+  unsigned long current_sector = disk->current_sector;
+  char path[1024];
+
+  if (prompt_user("\nPress `s` to save a status report, any other key to quit?: ", 0, 's')) {
+    printf("\nEnter file path to save report: ");
+    scanf("\n%1023[^\n]", path);
+    printf("\n");
+    /* open a file for output */
+    /* replace existing file if it exists */
+    fd = open(path,
+      O_WRONLY | O_CREAT | O_TRUNC | O_TEXT,
+      S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP
+    );
+  
+    if (fd == -1) {
+        perror("Unable to open file");
+        return 1;
+    }
+  
+    if (dup2(fd, 1) == -1) {
+        perror("Unable to read from stdout"); 
+        return 1;
+    }
+  
+    printf("\n");
+    print_separator();
+    printf("Disk Image Report.\n");
+    print_separator();
+
+    printf("Started at...\n");
+    set_sector(disk, start_sector);
+    print_status(disk, bytes_per_second);
+    set_sector(disk, current_sector);
+
+    printf("\n");
+    printf("Ended at...\n");
+    print_status(disk, bytes_per_second);
+    printf("\n");
+    
+    print_bad_sectors_status(disk);
+    fflush(stdout);
+  
+    fd = close(fd);
+  } else {
+    printf("\nNot saving report.");
+  }
+  return fd;
 }

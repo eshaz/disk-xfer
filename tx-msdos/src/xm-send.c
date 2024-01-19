@@ -38,6 +38,7 @@ unsigned int baud_rate = 9600; // TODO: expose a user parameter
 unsigned char overhead_size = 6;
 unsigned int sector_size = 512;
 double bytes_per_second = 0;
+unsigned long start_sector = 0;
 
 /**
  * Calculate 16-bit CRC
@@ -66,6 +67,7 @@ static void catch_interrupt() {
   if (interrupt_handler(disk, bytes_per_second)) {
     printf("\nReceived Interrupt. Aborting transfer.\n");
     int14_send_byte(0x18); // CANCEL
+    save_report(disk, start_sector, bytes_per_second);
     clean_up();
     exit(1);
   }
@@ -79,8 +81,9 @@ void clean_up() {
 /**
  * XMODEM-512 send file - main entrypoint.
  */
-void xmodem_send(unsigned long start_sector)
+void xmodem_send(unsigned long start)
 {
+  start_sector = start;
   bytes_per_second = (double)baud_rate / 8 - overhead_size;
   buf=malloc(sector_size);
   disk=create_disk();
@@ -99,8 +102,13 @@ void xmodem_send(unsigned long start_sector)
   }
 
   set_sector(disk, start_sector);
-  if (print_welcome(disk, bytes_per_second)) return; // user aborted
-  
+  print_welcome(disk, bytes_per_second);
+  if (!prompt_user("\nStart Transfer? [y]: ", 1, 'y')) {
+    printf("\nAborted.");
+    return;
+  }
+  printf("Run `rx [serial_port] [file_name]` command on Linux...\n");
+
   while (state!=END)
     { 
       catch_interrupt();
@@ -117,6 +125,7 @@ void xmodem_send(unsigned long start_sector)
             break;
           case REBLOCK:
           case END:
+            save_report(disk, start_sector, bytes_per_second);
             break;
         }
     }
