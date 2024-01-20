@@ -20,7 +20,7 @@ typedef enum _state {START, BLOCK, CHECK, REBLOCK, END} ProtocolState;
 /**
  * XMODEM-512 send file - main entrypoint.
  */
-void xmodem_send(unsigned long start_block);
+void xmodem_send(unsigned long start, unsigned long baud);
 
 /**
  * Send CRC START (0x43) character and delay for 3 seconds, waiting for SOH.

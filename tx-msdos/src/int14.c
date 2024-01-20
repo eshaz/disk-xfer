@@ -9,6 +9,7 @@
  */
 
 #include <i86.h>
+#include <stdio.h>
 #include "int14.h"
 
 static union REGS regs;
@@ -16,24 +17,32 @@ static union REGS regs;
 /**
  * Initialize port
  */
+static const unsigned int baud_rates[] = {
+  110,
+  150,
+  300,
+  600,
+  1200,
+  2400,
+  4800,
+  9600,
+  19200
+};
 unsigned char int14_init(unsigned int baud_rate)
 {
-  unsigned char use_extended_init = 0;
-  unsigned char baud;
+  unsigned char baud = 0;
+  for (; baud < 9; baud++)
+    if (baud_rates[baud] == baud_rate) break;
 
-  switch(baud_rate) {
-    case 110: baud=0; break;
-    case 150: baud=1; break;
-    case 300: baud=2; break;
-    case 600: baud=3; break;
-    case 1200: baud=4; break;
-    case 2400: baud=5; break;
-    case 4800: baud=6; break;
-    case 9600: baud=7; break;
-    case 19200: baud=8; use_extended_init=1; break;
+  if (baud == 9) {
+    fprintf(stderr, "Invalid baud rate supplied: %u", baud_rate);
+    fprintf(stderr, "\nSupported baud rates:");
+    for (baud = 0; baud < 9; baud++)
+      fprintf(stderr, "\n * %u", baud_rates[baud]);
+    return 1;
   }
 
-  if (use_extended_init) {
+  if (baud == 8) { // extended init
     regs.x.dx=0;    // COM1
     regs.h.ah=0x04; // Extended initialize (for FOSSIL)
     regs.h.cl=baud; // baud
@@ -52,8 +61,10 @@ unsigned char int14_init(unsigned int baud_rate)
 
   int86(0x14,&regs,&regs);
 
-  if (use_extended_init && regs.x.ax!=0x1954)
+  if (baud == 8 && regs.x.ax!=0x1954) {
+    fprintf(stderr, "This PC may not support: %u baud. Try using 9600 baud.", baud_rate);
     return 1;
+  }
 
   return 0;
 }

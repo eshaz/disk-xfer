@@ -34,7 +34,7 @@ Disk* disk;
  * 2   CRC
  * 1   ACK/NAK
 */
-unsigned int baud_rate = 9600; // TODO: expose a user parameter
+unsigned int baud_rate = 0;
 unsigned char overhead_size = 6;
 unsigned int sector_size = 512;
 double bytes_per_second = 0;
@@ -81,9 +81,10 @@ void clean_up() {
 /**
  * XMODEM-512 send file - main entrypoint.
  */
-void xmodem_send(unsigned long start)
+void xmodem_send(unsigned long start, unsigned long baud)
 {
   start_sector = start;
+  baud_rate = baud;
   bytes_per_second = (double)baud_rate / 8 - overhead_size;
   buf=malloc(sector_size);
   disk=create_disk();
@@ -101,16 +102,17 @@ void xmodem_send(unsigned long start)
     return;
   }
 
+  if (int14_init(baud_rate)) {
+    fprintf(stderr, "\nFATAL: Failed to initialize serial port.");
+    clean_up();
+    return;
+  }
+
   set_sector(disk, start_sector);
   print_welcome(disk, bytes_per_second);
   if (!prompt_user("\n\nStart Transfer? [y]: ", 1, 'y')) {
     fprintf(stderr, "\nAborted.");
     return;
-  }
-
-  if (int14_init(baud_rate)) {
-    fprintf(stderr, "\nWARNING: Failed to initialize serial port.");
-    fprintf(stderr, "\nWARNING: You may need to configure the serial port using `mode`.\n");
   }
   fprintf(stderr, "\nRun `rx [serial_port] [file_name]` command on Linux...\n");
 

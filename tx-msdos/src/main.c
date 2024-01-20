@@ -14,7 +14,7 @@
 
 #define BUFFER_SIZE 512
 
-static int atoul(char *in, unsigned long *out) 
+static char atoul(char *in, unsigned long *out) 
 {
     char *p;
 
@@ -29,17 +29,24 @@ return 0;
 int main(int argc, char* argv[])
 {
   // start from a sector if we left off
-  unsigned long start_block = 0;
-  int error = 0;
-  if (argc >= 2) {
-    error = atoul(argv[1], &start_block);
-    if (error) {
-      fprintf(stderr, "\nUsage: tx [start_block]");
-      return 1;
-    }
+  unsigned long start_sector = 0;
+  unsigned long baud = 9600;
+  char error = 0;
+  if (argc >= 3) {
+    error += atoul(argv[2], &baud);
+  }
+  if (argc == 2) {
+    error += atoul(argv[1], &start_sector);
+  }
+  if (error) {
+    fprintf(stderr, "\nUsage: tx [start_sector] [baud]");
+    fprintf(stderr, "\n\nDefaults:");
+    fprintf(stderr, "\n* [start_sector]    `0` sector to start transfer");
+    fprintf(stderr, "\n* [baud]         `9600` baud rate to set for COM1");
+    return 1;
   }
   
-  xmodem_send(start_block);
+  xmodem_send(start_sector, baud);
   clean_up();
     
   return 0;
