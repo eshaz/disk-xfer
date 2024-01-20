@@ -15,6 +15,6 @@ void print_read_logs_status(Disk* disk);
 
 int interrupt_handler(Disk* disk, double bytes_per_second);
 
-int save_report(Disk* disk, unsigned long start_sector, double bytes_per_second);
+void save_report(Disk* disk, unsigned long start_sector, double bytes_per_second);
 
 #endif /* UTILS_H */

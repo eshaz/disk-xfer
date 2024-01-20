@@ -120,6 +120,7 @@ void print_welcome(Disk* disk, double bytes_per_second) {
 int prompt_user(char* msg, char default_yes, char yes_key) {
   char prompt;
 
+  fflush(stdin);
   fprintf(stderr, msg);
   prompt = getchar();
   if (prompt == yes_key || (default_yes && prompt == '\n')) {
@@ -155,49 +156,64 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
   return 0;
 }
 
-int save_report(Disk* disk, unsigned long start_sector, double bytes_per_second) {
-  int fd = 0;
+static void print_report(Disk* disk, unsigned long start_sector, double bytes_per_second) {
   unsigned long current_sector = disk->current_sector;
+  
+  fprintf(stderr, "Disk Image Report.");
+
+  fprintf(stderr, "\n\nStarted at...");
+  set_sector(disk, start_sector);
+  print_status(disk, bytes_per_second);
+  set_sector(disk, current_sector);
+
+  fprintf(stderr, "\n\nEnded at...");
+  print_status(disk, bytes_per_second);
+
+  fprintf(stderr, "\n");
+  print_read_logs_status(disk);
+  fflush(stderr);
+}
+
+void save_report(Disk* disk, unsigned long start_sector, double bytes_per_second) {
+  int fd = 0;
+  int stderr_copy = 0;
+  int error = 0;
   char path[1024];
 
-  if (prompt_user("\nPress `s` to save a status report, any other key to quit?: ", 0, 's')) {
+  while (prompt_user("\nPress `s` to save a status report, any other key to quit?: ", 0, 's')) {
     fprintf(stderr, "\nEnter file path to save report: ");
     scanf("\n%1023[^\n]", path);
-    fprintf(stderr, "\n");
-    /* open a file for output */
-    /* replace existing file if it exists */
+
     fd = open(path,
       O_WRONLY | O_CREAT | O_TRUNC | O_TEXT,
       S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP
     );
   
-    if (fd == -1) {
-        perror("\nUnable to open file");
-        return 1;
+    if (fd < 0) {
+        fprintf(stderr, "\nUnable to open file");
+        continue;
     }
   
-    if (dup2(fd, 2) == -1) {
-        perror("\nUnable to read from stderr"); 
-        return 1;
+    stderr_copy = dup(2);
+    if (dup2(fd, 2) < 0) {
+        fprintf(stderr, "\nUnable to read from stderr"); 
+        break;
     }
-  
-    fprintf(stderr, "Disk Image Report.");
-
-    fprintf(stderr, "\n\nStarted at...");
-    set_sector(disk, start_sector);
-    print_status(disk, bytes_per_second);
-    set_sector(disk, current_sector);
-
-    fprintf(stderr, "\n\nEnded at...");
-    print_status(disk, bytes_per_second);
-    fprintf(stderr, "\n");
     
-    print_read_logs_status(disk);
-    fflush(stderr);
-  
-    fd = close(fd);
-  } else {
-    fprintf(stderr, "\nNot saving report.");
+    print_report(disk, start_sector, bytes_per_second);
+
+    if (dup2(stderr_copy, 2) < 0) {
+      fprintf(stderr, "\nUnable to replace stderr"); 
+      break;
+    }
+    error = close(fd);
+    close(stderr_copy);
+
+    if (error) {
+      fprintf(stderr, "\nError writing report. Try again?");
+    } else {
+      return;
+    }
   }
-  return fd;
+  fprintf(stderr, "\nNot saving report.");
 }
