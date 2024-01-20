@@ -7,13 +7,14 @@ typedef struct {
   unsigned char s; /* Sectors per Track */
 } CHS;
 
-// linked list of read errors
+// linked list of read logs
 typedef struct {
-  unsigned long sector; // set to current position of read error
+  unsigned long sector; // set to current position of read log
   char* status_msg; // status message when the error was encountered
   unsigned char status_code;
-  void* next; // set to 0 if no more read errors
-} ReadError;
+  unsigned char retry_count;
+  void* next; // set to 0 if no more read logs
+} ReadLog;
 
 typedef struct {
   // device information
@@ -28,9 +29,9 @@ typedef struct {
   // status information
   unsigned char status_code;
   char* status_msg;
-  // read error information
-  ReadError* read_error_head; // 0 if no read errors
-  ReadError* read_error_tail; // 0 if no read errors
+  // read log information
+  ReadLog* read_log_head; // 0 if no read logs
+  ReadLog* read_log_tail; // 0 if no read logs
 } Disk;
 
 Disk* create_disk();
@@ -39,8 +40,10 @@ void free_disk();
 
 void set_sector(Disk* disk, unsigned long sector);
 
-void add_read_error(Disk* disk);
+void add_read_log(Disk* disk, unsigned char retry_count);
 
-void print_read_errors();
+void update_read_log(Disk* disk, unsigned char retry_count);
+
+void print_read_logs();
 
 #endif /* DISK_H */

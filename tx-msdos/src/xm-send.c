@@ -16,7 +16,7 @@
 #include "xm-send.h"
 
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
-#define MAX_READ_RETRY_COUNT 20   // number of times to retry when a read error is encountered
+#define MAX_READ_RETRY_COUNT 20   // number of times to retry when a read error is encountered (up to 255)
 #define READ_RETRY_DELAY_MS  100  // delay introduced when retrying to read
 #define DISK_RESET_INTERVAL  2    // interval to reset the disk heads when an error occurs
 
@@ -63,7 +63,7 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
   return crc;
 }
 
-static int catch_interrupt() {
+static char catch_interrupt() {
   if (interrupt_handler(disk, bytes_per_second)) {
     fprintf(stderr, "\nReceived Interrupt. Aborting transfer.\n");
     int14_send_byte(0x18); // CANCEL
@@ -128,7 +128,7 @@ void xmodem_send(unsigned long start)
           case CHECK:
             xmodem_state_check();
             break;
-          case REBLOCK:
+                    case REBLOCK:
           case END:
             save_report(disk, start_sector, bytes_per_second);
             goto done;
@@ -148,7 +148,7 @@ void xmodem_state_start()
   short wait_time;
   
   while (state==START) {
-    fprintf(stderr, "\rWaiting for receiver... %u Seconds", wait);
+    fprintf(stderr, "\rWaiting for receiver... %u", wait);
     wait_time=1000;
     wait++;
     while (wait_time>=0) {
@@ -165,7 +165,30 @@ void xmodem_state_start()
       }
     }
   }
-  
+}
+
+static void update_read_status(unsigned char retry_count) {
+  if (disk->status_code) {
+    // there is an error
+    if (
+      disk->read_log_tail == 0 || // read log is empty
+      disk->read_log_tail->status_code != disk->status_code || // error status is different
+      disk->read_log_tail->sector != disk->current_sector // error sector is different
+    ) {
+      // new error, add to the read log
+      fprintf(stderr, "\nRead Error: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
+      add_read_log(disk, retry_count);
+    } else {
+      // same error, update the retry count
+      update_read_log(disk, retry_count);
+    }
+  } else if (retry_count > 0) {
+    // there is a success, but only after retrying
+    fprintf(stderr, "\nError Recovered: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
+    add_read_log(disk, retry_count);
+  } else {
+    // there is a success, and no retries, don't log
+  }
 }
 
 /**
@@ -174,41 +197,41 @@ void xmodem_state_start()
 void xmodem_state_block(void)
 {
   short i=0;
-  unsigned int read_retry = 0;
   unsigned short calced_crc;
+  unsigned char retry_count = 0;
   unsigned char read_error = int13_read_sector(disk, buf);
 
-  // retry through read errors
+  // retry through errors
   // it's normal to have known bad sectors on older disks
-  // attempt to read and send something if it was output
-  while (read_error && read_retry <= MAX_READ_RETRY_COUNT) {
-    catch_interrupt();
+  // attempt to read and send something if it was written to the buffer
+  while (read_error && retry_count <= MAX_READ_RETRY_COUNT) {
+    if (catch_interrupt()) return;
 
-    print_update("\nWarn: ", " Read Error. ", disk);
-    fprintf(stderr, "%d", read_retry);
-    fprintf(stderr, "\nCode: 0x%2X, %s.\n", disk->status_code, disk->status_msg);
+    update_read_status(retry_count);
+    print_update("\rWarn: ", " Retry # ", disk);
+    fprintf(stderr, "%d", retry_count);
 
-    if (!(read_retry % DISK_RESET_INTERVAL)) {
+    if (!(retry_count % DISK_RESET_INTERVAL)) {
       int13_reset_disk_system(disk);
     }
 
     delay(READ_RETRY_DELAY_MS);
     read_error = int13_read_sector(disk, buf);
-    read_retry++;
+    retry_count++;
   }
   
   if (read_error)
     {
       // retries failed
-      print_update("\nErr : ", " Failed.", disk);
-      fprintf(stderr, "\nErr : Data may be corrupted ... ");
-      add_read_error(disk);
+      print_update("\rErr : ", " Failed.", disk);
+      fprintf(stderr, "\nErr : Data may be corrupted. Sending data ... ");
       int13_reset_disk_system(disk);
       // send whatever was read
       int13_read_sector(disk, buf);
     }
   else
     {
+      update_read_status(retry_count);
       print_update("\nSend: ", " ... ", disk);
     }
 
@@ -253,7 +276,7 @@ void xmodem_state_check(void)
           fprintf(stderr, "NAK!");
           state=BLOCK;  // Resend.
           break;
-        case 0x18: // CAN
+                case 0x18: // CAN
           fprintf(stderr, "CANCEL!");
           state=END;   // end.
           break;

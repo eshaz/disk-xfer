@@ -3,18 +3,18 @@
 #include "utils.h"
 #include "disk.h"
 
-static void iterate_read_errors(Disk* disk, void (*operation) (ReadError* re)) {
-  ReadError* re = disk->read_error_head;
-  if (re) {
+static void iterate_read_logs(Disk* disk, void (*operation) (ReadLog* rl)) {
+  ReadLog* rl = disk->read_log_head;
+  if (rl) {
     do {
-      operation(re);
-      re = re->next;
-    } while (re);
+      operation(rl);
+      rl = rl->next;
+    } while (rl);
   }
 }
 
-static void print_read_error(ReadError* re) {
-    fprintf(stderr, "\n Block: %lu, Code: 0x%02X, %s.", re->sector, re->status_code, re->status_msg);
+static void print_read_log(ReadLog* rl) {
+    fprintf(stderr, "\n Block: %lu, Retry Count: %3u, Code: 0x%02X, %s.", rl->sector, rl->retry_count, rl->status_code, rl->status_msg);
 }
 
 Disk* create_disk() {
@@ -34,14 +34,14 @@ Disk* create_disk() {
   disk->current_byte = 0;
   disk->status_code = 0;
   disk->status_msg = "";
-  // read error information linked list
-  disk->read_error_head = 0;
-  disk->read_error_tail = 0;
+  // read log information linked list
+  disk->read_log_head = 0;
+  disk->read_log_tail = 0;
   return disk;
 }
 
 void free_disk(Disk* disk) {
-  iterate_read_errors(disk, &free);
+  iterate_read_logs(disk, &free);
   free(disk);
 }
 
@@ -54,27 +54,42 @@ void set_sector(Disk* disk, unsigned long sector) {
   disk->current_byte = sector*512;
 }
 
-void add_read_error(Disk* disk) {
-  ReadError* re = malloc(sizeof(ReadError));
-  re->sector = disk->current_sector;
-  re->status_code = disk->status_code;
-  re->status_msg = disk->status_msg;
-  re->next = 0;
+static ReadLog* create_read_log(Disk* disk, unsigned char retry_count) {
+  ReadLog* rl = malloc(sizeof(ReadLog));
+  rl->sector = disk->current_sector;
+  rl->status_code = disk->status_code;
+  rl->status_msg = disk->status_msg;
+  rl->retry_count = retry_count;
+  rl->next = 0;
+  return rl;
+}
 
-  if (disk->read_error_head == 0) {
+void add_read_log(Disk* disk, unsigned char retry_count) {
+  ReadLog* rl = create_read_log(disk, retry_count);
+
+  if (disk->read_log_head == 0) {
     // create new list
-    disk->read_error_head = re;
-    disk->read_error_tail = re;
-  } else if (disk->read_error_tail->sector != re->sector) {
-    // append to list
-    disk->read_error_tail->next = re;
-    disk->read_error_tail = re;
+    disk->read_log_head = rl;
+    disk->read_log_tail = rl;
   } else {
-    // discard duplicate
-    free(re);
+    // append to list
+    disk->read_log_tail->next = rl;
+    disk->read_log_tail = rl;
   }
 }
 
-void print_read_errors(Disk* disk) {
-  iterate_read_errors(disk, &print_read_error);
+void update_read_log(Disk* disk, unsigned char retry_count) {
+  ReadLog* rl = disk->read_log_tail;
+  
+  if (disk->read_log_head == 0) {
+    ReadLog* rl = create_read_log(disk, retry_count);
+    disk->read_log_head = rl;
+    disk->read_log_tail = rl;
+  }
+
+  rl->retry_count=retry_count;
+}
+
+void print_read_logs(Disk* disk) {
+  iterate_read_logs(disk, &print_read_log);
 }

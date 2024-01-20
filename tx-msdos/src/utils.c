@@ -88,11 +88,11 @@ void print_status(Disk* disk, double bytes_per_second) {
   print_separator();
 }
 
-void print_read_errors_status(Disk* disk) {
-  fprintf(stderr, "\nRead Errors...\n");
+void print_read_logs_status(Disk* disk) {
+  fprintf(stderr, "\nRead Log...\n");
   print_separator();
+  print_read_logs(disk);
   fprintf(stderr, "\n");
-  print_read_errors(disk);
   print_separator();
 }
 
@@ -100,7 +100,7 @@ static void print_help() {
   fprintf(stderr, "\n");
   print_separator();
   fprintf(stderr, "\n Press `s` for the current status.");
-  fprintf(stderr, "\n Press `e` to get the list of read errors.");
+  fprintf(stderr, "\n Press `l` to show the read log.");
   fprintf(stderr, "\n Press `CTRL-C` or `ESC` to abort the transfer.");
   fprintf(stderr, "\n Press any other key for this help menu.\n");
   print_separator();
@@ -132,7 +132,7 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
   char prompt;
   char printed_status = 0;
   char printed_help = 0;
-  char printed_read_errors = 0;
+  char printed_read_logs = 0;
 
   while (kbhit()) {
     prompt = getch();
@@ -144,9 +144,9 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
     if ((prompt == 's' || prompt == 'S') && !printed_status) {
       print_status(disk, bytes_per_second);
       printed_status = 1;
-    } else if ((prompt == 'e' || prompt == 'E') && !printed_read_errors) {
-      print_read_errors_status(disk);
-      printed_read_errors = 1;
+    } else if ((prompt == 'l' || prompt == 'L') && !printed_read_logs) {
+      print_read_logs_status(disk);
+      printed_read_logs = 1;
     } else if (!printed_help) {
       print_help();
       printed_help = 1;
@@ -192,7 +192,7 @@ int save_report(Disk* disk, unsigned long start_sector, double bytes_per_second)
     print_status(disk, bytes_per_second);
     fprintf(stderr, "\n");
     
-    print_read_errors_status(disk);
+    print_read_logs_status(disk);
     fflush(stderr);
   
     fd = close(fd);
