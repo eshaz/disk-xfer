@@ -16,25 +16,44 @@ static union REGS regs;
 /**
  * Initialize port
  */
-unsigned char int14_init(void)
+unsigned char int14_init(unsigned int baud_rate)
 {
-  regs.x.dx=0;
-  regs.h.ah=0x04; // Extended initialize (for FOSSIL)
-  regs.h.cl=7;    // 9600 bps
-  regs.h.ch=3;    // 8 bits
-  regs.h.bh=0;    // No parity
-  regs.h.bl=0;    // 1 stop bit
-  regs.h.al=0;    // no break
+  unsigned char use_extended_init = 0;
+  unsigned char baud;
+
+  switch(baud_rate) {
+    case 110: baud=0; break;
+    case 150: baud=1; break;
+    case 300: baud=2; break;
+    case 600: baud=3; break;
+    case 1200: baud=4; break;
+    case 2400: baud=5; break;
+    case 4800: baud=6; break;
+    case 9600: baud=7; break;
+    case 19200: baud=8; use_extended_init=1; break;
+  }
+
+  if (use_extended_init) {
+    regs.x.dx=0;    // COM1
+    regs.h.ah=0x04; // Extended initialize (for FOSSIL)
+    regs.h.cl=baud; // baud
+    regs.h.ch=3;    // 8 bits
+    regs.h.bh=0;    // No parity
+    regs.h.bl=0;    // 1 stop bit
+    regs.h.al=0;    // no break
+  } else {
+    regs.x.dx=0;         // COM1
+    regs.h.ah=0x00;      // Serial initialize
+    regs.h.al=0x03 |     // 8 bits
+             (0x01<<2) | // 1 stop bit
+             (0x00<<3) | // No parity
+             (baud<<5);  // baud
+  }
+
   int86(0x14,&regs,&regs);
 
-  if (regs.x.ax!=0x1954)
+  if (use_extended_init && regs.x.ax!=0x1954)
     return 1;
-
-  // Set RTS/CTS flow control
-  regs.h.ah = 0x0f;
-  regs.h.al = 0x02;
-  regs.x.dx = 0;
-  int86(0x14,&regs,&regs);
 
   return 0;
 }

@@ -108,7 +108,7 @@ void xmodem_send(unsigned long start)
     return;
   }
 
-  if (int14_init()) {
+  if (int14_init(baud_rate)) {
     fprintf(stderr, "\nWARNING: Failed to initialize serial port.");
     fprintf(stderr, "\nWARNING: You may need to configure the serial port using `mode`.\n");
   }
