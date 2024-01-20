@@ -30,7 +30,6 @@ typedef struct {
   unsigned char status_code;
   char* status_msg;
   // read log information
-  ReadLog* read_log_head; // 0 if no read logs
   ReadLog* read_log_tail; // 0 if no read logs
 } Disk;
 

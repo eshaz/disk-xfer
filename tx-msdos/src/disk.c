@@ -4,12 +4,12 @@
 #include "disk.h"
 
 static void iterate_read_logs(Disk* disk, void (*operation) (ReadLog* rl)) {
-  ReadLog* rl = disk->read_log_head;
-  if (rl) {
+  ReadLog* rl = disk->read_log_tail;
+  if (rl) { // if the log isn't empty
     do {
-      operation(rl);
       rl = rl->next;
-    } while (rl);
+      operation(rl);
+    } while (rl != disk->read_log_tail); // iterate until reaching the tail again
   }
 }
 
@@ -35,13 +35,13 @@ Disk* create_disk() {
   disk->status_code = 0;
   disk->status_msg = "";
   // read log information linked list
-  disk->read_log_head = 0;
   disk->read_log_tail = 0;
   return disk;
 }
 
 void free_disk(Disk* disk) {
   iterate_read_logs(disk, &free);
+  free(disk->read_log_tail);
   free(disk);
 }
 
@@ -54,40 +54,30 @@ void set_sector(Disk* disk, unsigned long sector) {
   disk->current_byte = sector*512;
 }
 
-static ReadLog* create_read_log(Disk* disk, unsigned char retry_count) {
+void add_read_log(Disk* disk, unsigned char retry_count) {
   ReadLog* rl = malloc(sizeof(ReadLog));
   rl->sector = disk->current_sector;
   rl->status_code = disk->status_code;
   rl->status_msg = disk->status_msg;
   rl->retry_count = retry_count;
-  rl->next = 0;
-  return rl;
-}
 
-void add_read_log(Disk* disk, unsigned char retry_count) {
-  ReadLog* rl = create_read_log(disk, retry_count);
-
-  if (disk->read_log_head == 0) {
-    // create new list
-    disk->read_log_head = rl;
+  if (disk->read_log_tail==0) {
+    // head is the tail
     disk->read_log_tail = rl;
+    rl->next = rl;
   } else {
-    // append to list
-    disk->read_log_tail->next = rl;
-    disk->read_log_tail = rl;
+    rl->next = disk->read_log_tail->next; // tail always points to the head
+    disk->read_log_tail->next = rl; // point old tail to the next node
+    disk->read_log_tail = rl; // add new tail
   }
 }
 
-void update_read_log(Disk* disk, unsigned char retry_count) {
-  ReadLog* rl = disk->read_log_tail;
-  
-  if (disk->read_log_head == 0) {
-    ReadLog* rl = create_read_log(disk, retry_count);
-    disk->read_log_head = rl;
-    disk->read_log_tail = rl;
+void update_read_log(Disk* disk, unsigned char retry_count) {  
+  if (disk->read_log_tail == 0) {
+    add_read_log(disk, retry_count);
+  } else {
+    disk->read_log_tail->retry_count=retry_count;
   }
-
-  rl->retry_count=retry_count;
 }
 
 void print_read_logs(Disk* disk) {
