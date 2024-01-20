@@ -18,33 +18,32 @@ static char get_number_length(unsigned long n) {
 }
 
 static void print_right_aligned(unsigned long to_print, unsigned long to_align) {
-    printf("%*s%lu", get_number_length(to_align) - get_number_length(to_print), "", to_print);
+    fprintf(stderr, "%*s%lu", get_number_length(to_align) - get_number_length(to_print), "", to_print);
 }
 
 static void print_c_s_h(CHS position, CHS geometry) {
-    printf("C: ");
+    fprintf(stderr, "C: ");
     print_right_aligned(position.c, geometry.c);
-    printf(" H: ");
+    fprintf(stderr, " H: ");
     print_right_aligned(position.h, geometry.h);
-    printf(" S: ");
+    fprintf(stderr, " S: ");
     print_right_aligned(position.s, geometry.s);
 }
 
 static void print_block_progress(Disk* disk) {
     float progress = (float) disk->current_sector / disk->total_sectors * 100;
-    printf("Block ");
+    fprintf(stderr, "Block ");
     print_right_aligned(disk->current_sector, disk->total_sectors);
-    printf(" of ");
+    fprintf(stderr, " of ");
     print_right_aligned(disk->total_sectors, disk->total_sectors);
-    printf(" (%3.2f %%)", progress);
+    fprintf(stderr, " (%3.2f %%)", progress);
 }
 
 static void print_separator() {
     char i;
     for (i = 0; i < 60; i++) {
-        printf("-");
+        fprintf(stderr, "-");
     }
-    printf("\n");
 }
 
 void print_update(
@@ -52,71 +51,76 @@ void print_update(
     char* message,
     Disk* disk
 ) {
-    printf(prefix);
+    fprintf(stderr, prefix);
     print_block_progress(disk);
-    printf(" ");
+    fprintf(stderr, " ");
     print_c_s_h(disk->position, disk->geometry);
-    printf(message);
+    fprintf(stderr, message);
 }
 
 void print_status(Disk* disk, double bytes_per_second) {
   double eta = (double) (disk->total_bytes - disk->current_byte) / bytes_per_second;
+  fprintf(stderr, "\n");
   print_separator();
-  printf(" SOURCE : 0x%02X, C: drive\n",disk->device_id);
+  fprintf(stderr, "\n SOURCE : 0x%02X, C: drive\n",disk->device_id);
   print_separator();
-  printf(" START  : Byte: ");
+  fprintf(stderr, "\n START  : Byte: ");
   print_right_aligned(disk->current_byte, disk->total_bytes);
-  printf(" | Block: ");
+  fprintf(stderr, " | Block: ");
   print_right_aligned(disk->current_sector, disk->total_sectors);
-  printf(" | ");
+  fprintf(stderr, " | ");
   print_c_s_h(disk->position, disk->geometry);
-  printf("\n END    : Byte: ");
+  fprintf(stderr, "\n END    : Byte: ");
   print_right_aligned(disk->total_bytes, disk->total_bytes);
-  printf(" | Block: ");
+  fprintf(stderr, " | Block: ");
   print_right_aligned(disk->total_sectors, disk->total_sectors);
-  printf(" | ");
+  fprintf(stderr, " | ");
   print_c_s_h(disk->geometry, disk->geometry);
-  printf("\n");
+  fprintf(stderr, "\n");
   print_separator();
-  printf(" ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f kB/S\n",
+  fprintf(stderr, "\n ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f kB/S",
       (unsigned int)(eta / 60 / 60),
       (unsigned int)(eta / 60) % 60,
       (unsigned long)eta % 60,
       (float)bytes_per_second / 1024
     );
+  fprintf(stderr, "\n");
   print_separator();
 }
 
 void print_read_errors_status(Disk* disk) {
-  printf("Read Errors...\n");
+  fprintf(stderr, "\nRead Errors...\n");
   print_separator();
+  fprintf(stderr, "\n");
   print_read_errors(disk);
   print_separator();
 }
 
 static void print_help() {
+  fprintf(stderr, "\n");
   print_separator();
-  printf(" Press `s` for the current status.\n");
-  printf(" Press `e` to get the list of read errors.\n");
-  printf(" Press `CTRL-C` or `ESC` to abort the transfer.\n");
-  printf(" Press any other key for this help menu.\n");
+  fprintf(stderr, "\n Press `s` for the current status.");
+  fprintf(stderr, "\n Press `e` to get the list of read errors.");
+  fprintf(stderr, "\n Press `CTRL-C` or `ESC` to abort the transfer.");
+  fprintf(stderr, "\n Press any other key for this help menu.\n");
   print_separator();
 }
 
 void print_welcome(Disk* disk, double bytes_per_second) {
+  fprintf(stderr, "Disk Image Summary...");
   print_status(disk, bytes_per_second);
-  printf("\nBefore starting...\n");
+  fprintf(stderr, "\n\nBefore starting...\n");
   print_separator();
-  printf(" Connect your serial cable from COM1 to your Linux receiver.\n");
+  fprintf(stderr, "\n Connect your serial cable from COM1 to your Linux receiver.\n");
   print_separator();
-  printf("\nDuring the transfer...\n");
+  fprintf(stderr, "\n\nDuring the transfer...");
   print_help();
 }
 
 int prompt_user(char* msg, char default_yes, char yes_key) {
   char prompt;
 
-  printf(msg);
+  fprintf(stderr, msg);
   prompt = getchar();
   if (prompt == yes_key || (default_yes && prompt == '\n')) {
     return 1;
@@ -138,15 +142,12 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
     }
 
     if ((prompt == 's' || prompt == 'S') && !printed_status) {
-      printf("\n");
       print_status(disk, bytes_per_second);
       printed_status = 1;
     } else if ((prompt == 'e' || prompt == 'E') && !printed_read_errors) {
-      printf("\n");
       print_read_errors_status(disk);
       printed_read_errors = 1;
     } else if (!printed_help) {
-      printf("\n");
       print_help();
       printed_help = 1;
     }
@@ -160,9 +161,9 @@ int save_report(Disk* disk, unsigned long start_sector, double bytes_per_second)
   char path[1024];
 
   if (prompt_user("\nPress `s` to save a status report, any other key to quit?: ", 0, 's')) {
-    printf("\nEnter file path to save report: ");
+    fprintf(stderr, "\nEnter file path to save report: ");
     scanf("\n%1023[^\n]", path);
-    printf("\n");
+    fprintf(stderr, "\n");
     /* open a file for output */
     /* replace existing file if it exists */
     fd = open(path,
@@ -171,36 +172,32 @@ int save_report(Disk* disk, unsigned long start_sector, double bytes_per_second)
     );
   
     if (fd == -1) {
-        perror("Unable to open file");
+        perror("\nUnable to open file");
         return 1;
     }
   
-    if (dup2(fd, 1) == -1) {
-        perror("Unable to read from stdout"); 
+    if (dup2(fd, 2) == -1) {
+        perror("\nUnable to read from stderr"); 
         return 1;
     }
   
-    printf("\n");
-    print_separator();
-    printf("Disk Image Report.\n");
-    print_separator();
+    fprintf(stderr, "Disk Image Report.");
 
-    printf("Started at...\n");
+    fprintf(stderr, "\n\nStarted at...");
     set_sector(disk, start_sector);
     print_status(disk, bytes_per_second);
     set_sector(disk, current_sector);
 
-    printf("\n");
-    printf("Ended at...\n");
+    fprintf(stderr, "\n\nEnded at...");
     print_status(disk, bytes_per_second);
-    printf("\n");
+    fprintf(stderr, "\n");
     
     print_read_errors_status(disk);
-    fflush(stdout);
+    fflush(stderr);
   
     fd = close(fd);
   } else {
-    printf("\nNot saving report.");
+    fprintf(stderr, "\nNot saving report.");
   }
   return fd;
 }

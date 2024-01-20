@@ -12,9 +12,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "utils.h"
+#include "int14.h"
 #include "xm-send.h"
 
-#define START_DELAY_TIME_MS  3000 // approx 3 secs.
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
 #define MAX_READ_RETRY_COUNT 20   // number of times to retry when a read error is encountered
 #define READ_RETRY_DELAY_MS  100  // delay introduced when retrying to read
@@ -63,14 +63,14 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
   return crc;
 }
 
-static void catch_interrupt() {
+static int catch_interrupt() {
   if (interrupt_handler(disk, bytes_per_second)) {
-    printf("\nReceived Interrupt. Aborting transfer.\n");
+    fprintf(stderr, "\nReceived Interrupt. Aborting transfer.\n");
     int14_send_byte(0x18); // CANCEL
-    save_report(disk, start_sector, bytes_per_second);
-    clean_up();
-    exit(1);
+    state=END;
+    return 1;
   }
+  return 0;
 }
 
 void clean_up() {
@@ -89,27 +89,32 @@ void xmodem_send(unsigned long start)
   disk=create_disk();
 
   if (int13_disk_geometry(disk)==1) {
-    printf("FATAL: Could not retrieve disk geometry for device 0x%02X! Aborting.\n", disk->device_id);
+    fprintf(stderr, "\nFATAL: Could not retrieve disk geometry for device 0x%02X! Aborting.", disk->device_id);
     clean_up();
     return;
   }
 
   if (start_sector > disk->total_sectors) {
-    printf("FATAL: Start block %lu was greater than device 0x%02X length!\n", start_sector, disk->device_id);
-    printf("FATAL: Device is %lu blocks in length. Aborting.\n", disk->total_sectors);
+    fprintf(stderr, "\nFATAL: Start block %lu was greater than device 0x%02X length!", start_sector, disk->device_id);
+    fprintf(stderr, "\nFATAL: Device is %lu blocks in length. Aborting.", disk->total_sectors);
     clean_up();
     return;
   }
 
   set_sector(disk, start_sector);
   print_welcome(disk, bytes_per_second);
-  if (!prompt_user("\nStart Transfer? [y]: ", 1, 'y')) {
-    printf("\nAborted.");
+  if (!prompt_user("\n\nStart Transfer? [y]: ", 1, 'y')) {
+    fprintf(stderr, "\nAborted.");
     return;
   }
-  printf("Run `rx [serial_port] [file_name]` command on Linux...\n");
 
-  while (state!=END)
+  if (int14_init()) {
+    fprintf(stderr, "\nWARNING: Failed to initialize serial port.");
+    fprintf(stderr, "\nWARNING: You may need to configure the serial port using `mode`.\n");
+  }
+  fprintf(stderr, "\nRun `rx [serial_port] [file_name]` command on Linux...\n");
+
+  while (1)
     { 
       catch_interrupt();
       switch (state)
@@ -126,10 +131,11 @@ void xmodem_send(unsigned long start)
           case REBLOCK:
           case END:
             save_report(disk, start_sector, bytes_per_second);
-            break;
+            goto done;
         }
     }
   
+  done:
   clean_up();
 }
 
@@ -138,24 +144,28 @@ void xmodem_send(unsigned long start)
  */
 void xmodem_state_start()
 {
-  short wait_time=START_DELAY_TIME_MS;
+  unsigned int wait = 0;
+  short wait_time;
   
-  while (wait_time>0)
-    {
-      catch_interrupt();
+  while (state==START) {
+    fprintf(stderr, "\rWaiting for receiver... %u Seconds", wait);
+    wait_time=1000;
+    wait++;
+    while (wait_time>=0) {
+      if (catch_interrupt()) return;
       delay(1);
       wait_time--;
-      if (int14_data_waiting()!=0)
-        {
-          if (int14_read_byte()=='C')
-            {
-              state=BLOCK;
-              printf("Starting Transfer.\n");
-              return;
-            }
+
+      if (int14_data_waiting()!=0) {
+        if (int14_read_byte()=='C') {
+          state=BLOCK;
+          fprintf(stderr, "\nStarting Transfer.");
+          return;
         }
+      }
     }
-  printf("Waiting for receiver...\n");
+  }
+  
 }
 
 /**
@@ -174,9 +184,9 @@ void xmodem_state_block(void)
   while (read_error && read_retry <= MAX_READ_RETRY_COUNT) {
     catch_interrupt();
 
-    print_update("Warn: ", " Read Error. ", disk);
-    printf("%d\n", read_retry);
-    printf("Code: 0x%2X, %s.\n", disk->status_code, disk->status_msg);
+    print_update("\nWarn: ", " Read Error. ", disk);
+    fprintf(stderr, "%d", read_retry);
+    fprintf(stderr, "\nCode: 0x%2X, %s.\n", disk->status_code, disk->status_msg);
 
     if (!(read_retry % DISK_RESET_INTERVAL)) {
       int13_reset_disk_system(disk);
@@ -190,8 +200,8 @@ void xmodem_state_block(void)
   if (read_error)
     {
       // retries failed
-      print_update("Err : ", " Failed.\n", disk);
-      printf("Err : Data may be corrupted ... ");
+      print_update("\nErr : ", " Failed.", disk);
+      fprintf(stderr, "\nErr : Data may be corrupted ... ");
       add_read_error(disk);
       int13_reset_disk_system(disk);
       // send whatever was read
@@ -199,7 +209,7 @@ void xmodem_state_block(void)
     }
   else
     {
-      print_update("Send: ", " ... ", disk);
+      print_update("\nSend: ", " ... ", disk);
     }
 
   int14_send_byte(0x01);  // SOH
@@ -228,27 +238,27 @@ void xmodem_state_check(void)
       switch (b)
         {
         case 0x06: // ACK
-          printf("ACK!\n");
+          fprintf(stderr, "ACK!");
           block_num++;
           block_num&=0xff;
           state=BLOCK;
           if (disk->current_sector >= disk->total_sectors) {
             state=END;
-            printf("Transfer complete!\n");
+            fprintf(stderr, "\nTransfer complete!");
           } else {
             set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
           }
           break;
         case 0x15: // NAK
-          printf("NAK!\n");
+          fprintf(stderr, "NAK!");
           state=BLOCK;  // Resend.
           break;
         case 0x18: // CAN
-          printf("CANCEL!\n");
+          fprintf(stderr, "CANCEL!");
           state=END;   // end.
           break;
         default:
-          printf("Unknown Byte: 0x%02X: %c\n",b,b);
+          fprintf(stderr, "Unknown Byte: 0x%02X: %c",b,b);
         }
     }
 }

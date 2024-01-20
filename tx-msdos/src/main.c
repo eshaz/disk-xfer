@@ -10,7 +10,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "int14.h"
 #include "xm-send.h"
 
 #define BUFFER_SIZE 512
@@ -35,14 +34,9 @@ int main(int argc, char* argv[])
   if (argc >= 2) {
     error = atoul(argv[1], &start_block);
     if (error) {
-      printf("Usage: tx [start_block]");
+      fprintf(stderr, "\nUsage: tx [start_block]");
       return 1;
     }
-  }
-
-  if (int14_init()) {
-    printf("WARNING: Failed to initialize serial port.\n");
-    printf("WARNING: You may need to configure the serial port using `mode`.\n");
   }
   
   xmodem_send(start_block);

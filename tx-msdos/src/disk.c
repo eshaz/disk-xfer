@@ -14,7 +14,7 @@ static void iterate_read_errors(Disk* disk, void (*operation) (ReadError* re)) {
 }
 
 static void print_read_error(ReadError* re) {
-    printf(" Block: %lu, Code: 0x%02X, %s.\n", re->sector, re->status_code, re->status_msg);
+    fprintf(stderr, "\n Block: %lu, Code: 0x%02X, %s.", re->sector, re->status_code, re->status_msg);
 }
 
 Disk* create_disk() {
