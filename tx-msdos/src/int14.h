@@ -14,7 +14,7 @@
 /**
  * Initialize port
  */
-unsigned char int14_init(unsigned int baud_rate);
+unsigned char int14_init(unsigned long baud_rate);
 
 /**
  * Send byte

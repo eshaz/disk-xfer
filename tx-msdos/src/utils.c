@@ -209,6 +209,7 @@ int interrupt_handler(Disk* disk, double bytes_per_second, double time_elapsed) 
 static void print_report(Disk* disk, unsigned long start_sector, double bytes_per_second, double time_elapsed) {
   CHS geometry = disk->geometry;
   CHS position = disk->position;
+  unsigned long current_byte = disk->current_byte;
   unsigned long current_sector = disk->current_sector;
 
   fprintf(stderr, "Disk Image Report for...\n");
@@ -230,7 +231,7 @@ static void print_report(Disk* disk, unsigned long start_sector, double bytes_pe
   // set position to show end of copy
   // manually change geometry to print the correct values for the end
   disk->geometry = position;
-  disk->total_bytes = disk->current_byte;
+  disk->total_bytes = current_byte;
   disk->total_sectors = current_sector;
 
   fprintf(stderr, "\n\nTransferred Image...\n");

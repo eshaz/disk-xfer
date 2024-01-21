@@ -17,53 +17,76 @@ static union REGS regs;
 /**
  * Initialize port
  */
+#define SUPPORTED_BAUD_RATES 13
 static const unsigned int baud_rates[] = {
-  110,
-  150,
-  300,
-  600,
-  1200,
-  2400,
-  4800,
-  9600,
-  19200
+  11,
+  15,
+  30,
+  60,
+  120,
+  240,
+  480,
+  960,
+  1920,
+  3840,
+  5760,
+  7680,
+  11520
 };
-unsigned char int14_init(unsigned int baud_rate)
+unsigned char int14_init(unsigned long baud_rate)
 {
   unsigned char baud = 0;
-  for (; baud < 9; baud++)
+  baud_rate/=10;
+  
+  for (; baud < SUPPORTED_BAUD_RATES; baud++)
     if (baud_rates[baud] == baud_rate) break;
 
-  if (baud == 9) {
-    fprintf(stderr, "Invalid baud rate supplied: %u", baud_rate);
+  if (baud == SUPPORTED_BAUD_RATES) {
+    fprintf(stderr, "Invalid baud rate supplied: %lu", baud_rate*10);
     fprintf(stderr, "\nSupported baud rates:");
-    for (baud = 0; baud < 9; baud++)
-      fprintf(stderr, "\n * %u", baud_rates[baud]);
+    for (baud = 0; baud < SUPPORTED_BAUD_RATES; baud++)
+      fprintf(stderr, "\n * %lu", (unsigned long)baud_rates[baud] * 10);
     return 1;
   }
 
-  if (baud == 8) { // extended init
-    regs.x.dx=0;    // COM1
-    regs.h.ah=0x04; // Extended initialize (for FOSSIL)
-    regs.h.cl=baud; // baud
-    regs.h.ch=3;    // 8 bits
-    regs.h.bh=0;    // No parity
-    regs.h.bl=0;    // 1 stop bit
-    regs.h.al=0;    // no break
+  // setup COM1 port
+  if (baud > 9) {
+    // FOSSIL Extended line control initialization
+    regs.x.dx=0;
+    regs.h.ah=0x1E;
+    regs.h.cl=(baud/8<<7)|(baud%8); // Init baud rate
+    regs.h.ch=3;                    // 8 bits
+    regs.h.bh=0;                    // No parity
+    regs.h.bl=0;                    // 1 stop bit
+    regs.h.al=0;                    // no break
   } else {
-    regs.x.dx=0;         // COM1
-    regs.h.ah=0x00;      // Serial initialize
-    regs.h.al=0x03 |     // 8 bits
-             (0x01<<2) | // 1 stop bit
-             (0x00<<3) | // No parity
-             (baud<<5);  // baud
+    // use normal / FOSSIL initialize
+    regs.x.dx=0;           // COM1
+    regs.h.ah=0x00;        // Serial initialize
+    regs.h.al=0x03 |       // 8 bits
+             (0x01<<2) |   // 1 stop bit
+             (0x00<<3) |   // No parity
+             (baud%8<<5);  // baud
   }
-
   int86(0x14,&regs,&regs);
 
-  if (baud == 8 && regs.x.ax!=0x1954) {
-    fprintf(stderr, "This PC may not support: %u baud. Try using 9600 baud.", baud_rate);
-    return 1;
+  // Load FOSSIL
+  if (baud > 7) {
+    regs.x.dx=0;    // COM1
+    regs.h.ah=0x04; // FOSSIL initialize
+    int86(0x14,&regs,&regs);
+
+    if (regs.x.ax!=0x1954) {
+      fprintf(stderr, "\nThis PC may not support: %lu baud or the FOSSIL driver may not be installed.", baud_rate*10);
+      fprintf(stderr, "\nTry using 9600 baud.");
+      return 1;
+    }
+    
+    // Set RTS/CTS flow control
+    regs.h.ah = 0x0f;
+    regs.h.al = 0x02;
+    regs.x.dx = 0;
+    int86(0x14,&regs,&regs);
   }
 
   return 0;
