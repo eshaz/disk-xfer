@@ -24,6 +24,7 @@
 ProtocolState state=START;
 
 unsigned char block_num=1;
+unsigned char response=0;
 char* buf;
 Disk* disk;
 
@@ -222,7 +223,11 @@ void xmodem_state_block(void)
   // retry through errors
   // it's normal to have known bad sectors on older disks
   // attempt to read and send something if it was written to the buffer
-  while (read_error && retry_count <= MAX_READ_RETRY_COUNT) {
+  while (
+    response != 0x15 && // don't do retries after a NAK response since the block was already retried
+    read_error &&
+    retry_count <= MAX_READ_RETRY_COUNT
+  ) {
     if (catch_interrupt()) return;
 
     update_read_status(retry_count);
@@ -243,9 +248,6 @@ void xmodem_state_block(void)
       // retries failed
       print_update("\rErr : ", " Failed.", disk);
       fprintf(stderr, "\nErr : Data may be corrupted. Sending data ... ");
-      int13_reset_disk_system(disk);
-      // send whatever was read
-      int13_read_sector(disk, buf);
     }
   else
     {
@@ -262,6 +264,12 @@ void xmodem_state_block(void)
 
   calced_crc=xmodem_calc_crc(buf,sector_size);
   int14_send_byte((calced_crc>>8));       // CRC Hi
+
+  // discard anything received while this block was being sent
+  while (int14_data_waiting()) {
+    int14_read_byte();
+  }
+
   int14_send_byte(calced_crc&0xFF);       // CRC Lo
 
   state=CHECK;
@@ -272,34 +280,34 @@ void xmodem_state_block(void)
  */
 void xmodem_state_check(void)
 {
-  unsigned char b;
-  if (int14_data_waiting()!=0)
-    {
-      b=int14_read_byte();
-      switch (b)
-        {
-        case 0x06: // ACK
-          fprintf(stderr, "ACK!");
+  if (int14_data_waiting()!=0) {
+    response=int14_read_byte();
+
+    switch (response) {
+      case 0x00: break; // no response
+      case 0x06: // ACK
+        fprintf(stderr, "ACK!");
+        if (disk->current_sector >= disk->total_sectors) {
+          state=END;
+          fprintf(stderr, "\nTransfer complete!");
+        } else {
+          state=BLOCK;
           block_num++;
           block_num&=0xff;
-          state=BLOCK;
-          if (disk->current_sector >= disk->total_sectors) {
-            state=END;
-            fprintf(stderr, "\nTransfer complete!");
-          } else {
-            set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
-          }
-          break;
-        case 0x15: // NAK
-          fprintf(stderr, "NAK!");
-          state=BLOCK;  // Resend.
-          break;
-                case 0x18: // CAN
-          fprintf(stderr, "CANCEL!");
-          state=END;   // end.
-          break;
-        default:
-          fprintf(stderr, "Unknown Byte: 0x%02X: %c",b,b);
+          set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
         }
+        break;
+      case 0x15: // NAK
+        fprintf(stderr, "NAK!");
+        delay(100); // wait for receiver to flush buffer
+        state=BLOCK;  // Resend.
+        break;
+      case 0x18: // CAN
+        fprintf(stderr, "CANCEL!");
+        state=END;   // end.
+        break;
+      default:
+        fprintf(stderr, "Unknown Byte: 0x%02X: %c",response,response);
     }
+  }
 }

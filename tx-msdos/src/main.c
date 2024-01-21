@@ -32,12 +32,8 @@ int main(int argc, char* argv[])
   unsigned long start_sector = 0;
   unsigned long baud = 9600;
   char error = 0;
-  if (argc >= 3) {
-    error += atoul(argv[2], &baud);
-  }
-  if (argc == 2) {
-    error += atoul(argv[1], &start_sector);
-  }
+  if (argc >= 2) error += atoul(argv[1], &start_sector);
+  if (argc >= 3) error += atoul(argv[2], &baud);
   if (error) {
     fprintf(stderr, "\nUsage: tx [start_sector] [baud]");
     fprintf(stderr, "\n\nDefaults:");
