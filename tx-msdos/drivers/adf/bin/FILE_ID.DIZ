@@ -1,0 +1,7 @@
+ADF v1.50 serial port FOSSIL driver
+ADF is a serial port FOSSIL driver for high
+speed modem users. Supports FIFO UARTs 16550,
+16650 and 16750, 115200 bps, any port, any
+IRQ, any FIFO trigger level, FOSSIL rev level
+5 and multitasking environments (such as
+Windows 3, Windows 95 and OS/2).

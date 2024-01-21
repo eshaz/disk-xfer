@@ -1,0 +1,1187 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                  AnDan Software FOSSIL Version 1.50
+
+                  Users Manual
+
+                  Scandinavian Digital Systems          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          Table of contents
+
+           1  Overview ...............................................    3
+              1.1  Features of ADF ...................................    3
+           2  Freeware ...............................................    3
+              2.1  Contributions .....................................    3
+              2.2  Licensed ..........................................    4
+           3  Support and new versions ...............................    4
+              3.1  ADF doesn't work ..................................    4
+           4  Included files .........................................    4
+           5  Installation ...........................................    5
+              5.1  Installing on Windows 3.1, 3.11, and WfWG 3.1 .....    6
+              5.2  Installing on Windows for Workgroups 3.11 .........    6
+              5.3  Installing on Windows 95 ..........................    6
+           6  Command line arguments .................................    7
+              6.1  port ..............................................    7
+              6.2  addr ..............................................    8
+              6.2  irq ...............................................    8
+              6.4  baud ..............................................    8
+              6.5  recbuf,hold,cont ..................................    9
+              6.6  trabuf ............................................    9
+              6.7  fifo ..............................................    9
+              6.8  line ..............................................    9
+              6.9  modem .............................................   10
+           7  Execution examples .....................................   10
+           8  Baud rate calculation ..................................   11
+           9  16550, 16650 and 16750 FIFO UARTs ......................   12
+              9.1  Receiver 16550-FIFO trigger level .................   13
+              9.2  Receiver 16650-FIFO trigger level .................   13
+              9.3  Transmitter 16650-FIFO trigger level ..............   14
+              9.4  Receiver 16750-FIFO trigger level .................   14
+           10 Error messages .........................................   14
+           11 The ADFComCh program ...................................   16
+           12 The ADFDebug program ...................................   16
+              12.1 Using ADFDebug ....................................   17
+           13 The ADFTerm program ....................................   18
+           14 The ADFTest program ....................................   18
+           15 Version history ........................................   18
+
+
+          Copyright (c) 1994-2000 Scandinavian Digital Systems AB
+
+          This product, including the manual and the software, is provided
+          as is. Scandinavian Digital Systems AB and Anders Danielsson
+          disclaims all warranties of any kind, whether expressed or
+          implied, and are not liable to you or anyone else for any damages
+          or costs due to the use or inability to use this product.
+
+          Acknowledgments:
+
+          AnDan Software is a trademark of Scandinavian Digital Systems AB.
+          FidoNet is a trademark of Tom Jennings.
+          Windows is a trademark of Microsoft Corporation.
+          X00 is a program made by Raymond L. Gwinn.
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 2          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          BNU is a program made by David Nugent, Unique Computing Pty
+          Limited.
+          16550 is a device made by National Semiconductor Corporation.
+          16650 is a device made by Startech Semiconductor Incorporated.
+          16750 is a device made by Texas Instrument Incorporated.
+
+
+
+
+          1  Overview
+
+          ADF is a FOSSIL revision level 5 driver, including the additional
+          functions defined by Raymond L. Gwinn in X00 v1.50.
+
+          ADF is specially designed for users of high speed modems with or
+          without the 16550, 16650 or the 16750 UART, using DOS or a
+          multitasking environment.
+
+          ADF was initially written some years ago because other FOSSIL
+          drivers did not always work properly in protected mode
+          multitasking environments, where the UART is emulated.
+
+          ADF is designed to work well with both emulated UARTs and real
+          UARTs, without any drawbacks.
+
+
+          1.1  Features of ADF
+
+          * Always a locked baud-rate.
+          * Locked baud-rate of any speed (2 bps - 115200 bps).
+          * Defaults to 8 databits, no parity, and 1 stop bit (8N1).
+          * Always CTS/RTS handshake. Never DSR/DTR or XON/XOFF handshake.
+          * One port per ADF (load ADF in different tasks for many ports).
+          * COM-port address configurable (0H-FFFFH).
+          * COM-port IRQ configurable (0-15).
+          * Full support of the 16550, 16650 and 16750 UARTs.
+          * Fills transmit 16550-FIFO buffer with all 16 bytes.
+          * Fills transmit 16650-FIFO buffer with all 32 bytes.
+          * Fills transmit 16750-FIFO buffer with all 16 bytes.
+          * Receiver 16550-FIFO configurable (1, 4, 8 or 14 bytes).
+          * Receiver and transmitter 16650-FIFO configurable.
+          * Receiver 16750-FIFO configurable.
+          * Only 8088/8086 compatible code used.
+
+
+          2  Freeware
+
+          The files in this package may be copied and distributed if no fee
+          is charged and if no changes are done.
+
+
+          2.1  Contributions
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 3          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          Free contributions may be sent to:
+
+              Scandinavian Digital Systems AB
+              Hjortronstigen 22
+              S-664 32  Grums
+              SWEDEN
+
+          In such case, please send cash (bills, paper money) in a letter.
+
+          Do not send checks, cheques or money orders. Only use paper
+          money, not coins.
+
+
+          2.2  Licensed
+
+          ADF may be licensed for distribution or use by organizations or
+          companies. In such case, ADF will display this when executed, and
+          a text file should be included in the package telling this.
+
+          A licensed version of ADF, may not be copied or distributed,
+          except by the licensed organization, as described in its license
+          agreement with Scandinavian Digital Systems AB.
+
+
+          3  Support and new versions
+
+          If you have questions, comments or find bugs in the program,
+          please send electronic mail to the author, Anders Danielsson on
+          andan@digsys.se.
+
+          The latest version can be downloaded from http://www.digsys.se.
+
+          At http://www.digsys.se you find news, programs and support from
+          AnDan Software.
+
+
+          3.1  ADF doesn't work
+
+          ADF is tested to work with many programs, also in different
+          environments, that use FOSSIL drivers.
+
+          The author is convinced that ADF will work together with all well
+          behaved programs, and if not, it is our intention to make it work
+          with those programs as quickly as possible.
+
+          However, it is not our policy to make memory or time consuming
+          changes in ADF to make it work with badly behaved programs that
+          do not use a FOSSIL correctly.
+
+
+          4  Included files
+
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 4          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          You should have received the following files:
+
+          File name:    Description:
+
+          ADF.TXT       This file
+          ADF.EXE       The FOSSIL driver
+          ADFCOMCH.EXE  Checks COM-ports
+          ADFDEBUG.EXE  FOSSIL debugger
+          ADFTERM.EXE   Very small and simple communication program
+          ADFTEST.EXE   FOSSIL tester
+          ADFCOM1.BAT   Example of use of ADF with COM1
+          ADFCOM2.BAT   Example of use of ADF with COM2
+          FILE_ID.DIZ   File description
+
+          If your ADF is licensed (non-freeware), a text file is added
+          telling about the licensed version.
+
+
+          5  Installation
+
+          Just copy ADF.EXE to a directory included in your PATH.
+
+          If you are only running DOS, edit your AUTOEXEC.BAT and insert a
+          line that loads ADF.
+
+          You may insert (or call) one of the files ADFCOM1.BAT or
+          ADFCOM2.BAT for quick and easy editing.
+
+          If you are using a protected mode multitasking environment, such
+          as Windows, load one copy of ADF in each wanted DOS session using
+          different ports.
+
+          Do not load ADF in AUTOEXEC.BAT. In fact, this applies for all
+          FOSSIL drivers, and this is the reason why ADF only uses one port
+          per load.
+
+          Instead, execute for example MAINBBS.BAT that will call
+          RUNBBS.BAT (or whatever filenames you are using). Such a
+          MAINBBS.BAT may look like:
+
+              @echo off
+              prompt $e[0;40;1;31mBBS$e[0;37m $p$g
+              path c:\bbs;%path%
+              rem do other SET here, like SET FDOPT=NORES or
+              rem SET MCM=C:\MCMAIL
+              call adfcom1
+              call runbbs
+              adf unload
+
+          If you are using Windows 3, you may need to set an environment
+          size in SYSTEM.INI, example:
+
+              [NonWindowsApp]
+              CommandEnvSize=1024
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 5          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          5.1  Installing on Windows 3.1, 3.11, and WfWG 3.1
+
+          To let ADF (and other DOS application) take advantage of the
+          FIFO's of the 16550 UART, you need to install a third-party
+          communications drivers (such as Turbocom by Pacific Commware and
+          KingComm by OTC Corporation), or upgrade to Windows for
+          Workgroups 3.11.
+
+
+          5.2  Installing on Windows for Workgroups 3.11
+
+          Windows for Workgroups 3.11 is the first version of Windows with
+          16550 FIFO support for DOS applications. You do not need any
+          third-party communications drivers.
+
+          Make sure you got a SERIAL.386 dated Feb 17, 1994, or later.
+          (Available at http://www.microsoft.com).
+
+          Examples of settings in SYSTEM.INI:
+
+              [386Enh]
+              COM1BASE=03F8
+              COM1IRQ=4
+              COM1Fifo=1
+              COM1TxFifo=1
+              COM1RxTrigger=4
+              COM2BASE=02F8
+              COM2IRQ=3
+              COM2Fifo=1
+              COM2TxFifo=1
+              COM2RxTrigger=4
+
+          Set the COM?RxTrigger to the same value as the receiver trigger
+          level of ADF (see below).
+
+
+          5.3  Installing on Windows 95
+
+          If you have an 16550, 16650 or 16750 UART, you need to enable the
+          16550 support and configure it in Windows 95.
+
+          In the port settings of the modem configuration, enable the
+          FIFOs, set the FIFO receiver buffer (1, 4, 8 or 14) to the same
+          value as the receiver trigger level of ADF (see below), and set
+          the FIFO transmit buffer to the maximum.
+
+          A FIFO receiver trigger level of 4 (the second position in
+          Windows 95) is a good choice for most users using 38400 bps or
+          higher.
+
+          In the SYSTEM.INI file, set the Com?Buffer equal to the size of
+          the receive buffer of ADF. Example:
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 6          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+              [386Enh]
+              Com1Buffer=8192
+              Com2Buffer=8192
+
+
+          6  Command line arguments
+
+          When you run ADF without any arguments, it will display the
+          following help text (use ADF|MORE for more prompt):
+
+          adf port addr irq baud recbuf[,hold[,cont]] trabuf [fifo] [line]
+            [modem]
+
+          port    FOSSIL port number, 0-126, or COM-port, COM1-COM127.
+                  Example: 0 or COM1
+          addr    Address in hex of COM-port, 0-FFFF. Example: 3F8
+          irq     IRQ number of COM-port, 0-15. Example: 4
+          baud    Locked baud-rate, 1-115200. Example: 38400
+          recbuf  Size of receive buffer, 256-16384. Example: 8192
+          hold    Flow control hold or stop, default 7/8 of recbuf.
+                  Example: 7168
+          cont    Flow control continue or restart, default 6/8 of recbuf.
+                  Example: 6144
+          trabuf  Size of transmit buffer, 256-16384. Example: 8192
+          fifo    Receiver 16550-FIFO trigger level, 1, 4, 8 or 14.
+                  Default: 8
+                  Or 16650,rec,tra for setting receiver trigger level 8,
+                  16, 24 or 28, and transmitter trigger level 8, 16, 24 or
+                  30 on 16650. Example: 16650,16,8
+                  Or 16750,rec for setting receiver trigger level 1, 16, 32
+                  or 56 on 16750. Example: 16750,32
+          line    Line control register. Default: 3
+          modem   Modem control register. Default: 11
+
+          ADF will stay resident when using the above command line.
+
+          adf UNLOAD
+
+          ADF will remove itself from memory when using the above command
+          line.
+
+          adf watch ON|OFF|time
+
+          ADF will turn carrier watchdog on or off when using the above
+          command line. If a numeric value is used, the time out in seconds
+          (10-3600) will be set, this will not turn the watchdog on or off
+          (default is 60 seconds).
+
+
+          6.1  port
+
+          You may specify the FOSSIL port number starting with 0 by using a
+          number only, or you may specify the port number starting with 1
+          by putting COM before the number, that is 0 = COM1, 1 = COM2 and
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 7          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          so on. In practice, ADF sets no limits, but your environment may
+          limit the number of COM ports.
+
+          The FOSSIL port number is only used to check for correct calls by
+          application programs. ADF doesn't use this number to access the
+          port or anything like that. You always need to specify the
+          address and IRQ of the port.
+
+
+          6.2  addr
+
+          Address in hexadecimal notation of the COM port, see irq.
+
+
+          6.3  irq
+
+          IRQ of the COM port. The most common addresses and IRQs are:
+
+              COM1    3F8    4
+              COM2    2F8    3
+              COM3    3E8    4
+              COM4    2E8    3
+
+          Note that you cannot use two COM ports having the same IRQ. If
+          you configure your hardware using the same IRQ of two COM ports,
+          you must be very sure that they are not used at the same time and
+          that programs using them turns them off when finished. Otherwise
+          you will get a true electrical short-circuit.
+
+
+          6.4  baud
+
+          The baud rate to use (lock). Common values are 9600, 19200,
+          38400, 57600 and 115200. See chapter 8 for details.
+
+          These are the PC standard baud rates. Some communication adapters
+          uses a baud rate multiplication, meaning that when ADF sets a PC
+          standard baud rate, the true baud rate will be (for example) four
+          times higher. ADF fully supports such adapters, you simply
+          specify the (false) PC standard baud rate on the ADF command
+          line.
+
+          With some application programs, many modems need to be
+          initialized and programmed (e.g. AT&W) using the wanted baud
+          rate. The supplied ADFTERM.EXE is useful for one-time
+          initialization and programming of modems.
+
+          The baud rate should be at least as high as 10 times your cps
+          rate. It should not need to be much larger than this.
+
+          Be aware of that the RS-232 standard specifies a maximum baud
+          rate of 20000 bps. Most of todays computers and modems allows
+          higher baud rates, but some don't, please see your hardware
+          manuals.
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 8          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          6.5  recbuf,hold,cont
+
+          The receive buffer size in bytes. Use at least 1024, but it
+          should not need to be much larger than your maximum cps rate.
+          8192 is a good value for high speed modems. The biggest buffer is
+          16384 bytes.
+
+          Optionally, you may use commas and specify the receive flow
+          control trigger levels. When the number of bytes in the receive
+          buffer is more than the "hold" value, RTS will be lowered. Then
+          when the number of bytes has gone below the "cont" value, RTS
+          will be raised again.
+
+          Note that some modems ignores the RTS signal, in practice it will
+          work anyway, at least with large enough receive buffer.
+
+
+          6.6  trabuf
+
+          The transmit buffer size in bytes. Use at least 1024, but it
+          should not need to be much larger than your maximum cps rate.
+          8192 is a good value for high speed modems. The biggest buffer is
+          16384 bytes.
+
+
+          6.7  fifo
+
+          The 16550 FIFO receiver trigger level. A value of 1, 4, 8 or 14
+          bytes. Please see chapter 9 for details. If you don't specify
+          this on the command line, a trigger level of 8 bytes will be used
+          by default. If you don't have a 16550 or compatible, ADF will
+          still set the trigger level, but it will have no effect.
+
+          When running ADF under Windows, set the receiver trigger level of
+          the Windows communication driver to the same value as ADF.
+
+          Instead of the 16550 FIFO receiver trigger level, you may specify
+          the number 16650 or 16750, meaning you got a 16650 or a 16750
+          UART respectively.
+
+          When you use 16650 you must also specify the 16650 FIFO receiver
+          and transmitter trigger levels separated with commas.
+
+          When you use 16750 you must also specify the 16750 FIFO receiver
+          trigger level separated with a comma.
+
+          Please note, you may need or want to use your 16650 or 16750 in
+          16550 compatible mode. In such cases, you should not tell ADF to
+          use 16650 or 16750.
+
+
+          6.8  line
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                               Page 9          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          The value to put in the UART's Line Control Register. This is an
+          advanced option. If you want 8N1 (like most users) you don't need
+          to worry about this option. The Line Control Register is a bit
+          register, you need to add the values wanted.
+
+          Value:  Meaning:
+
+             0    5 data bits
+             1    6 data bits
+             2    7 data bits
+             3    8 data bits
+             4    2 stop bits
+             8    Parity Enable
+            16    Even Parity
+            32    Stick Parity
+
+          Common combinations:
+
+            8N1   3
+            7O1   10 (2+8)
+            7E1   26 (2+8+16)
+
+
+          6.9  modem
+
+          The value to put in the UART's Modem Control Register. This is an
+          advanced option. If you have a 100% PC compatible you should not
+          use this option. The Modem Control Register is a bit register,
+          you need to add the values wanted. This value is loaded into the
+          register when application programs calls for a FOSSIL
+          initialization. Some bits (like DTR, RTS and Out2) are modified
+          by ADF during execution.
+
+          Value:  Meaning:
+
+            1     Data Terminal Ready, DTR
+            2     Request to Send, RTS
+            4     Out1
+            8     Out2, On PC compatibles, the Out2 signal is used to mask
+                  the IRQ signal. IRQ must not be masked for ADF to work.
+           16     Loopback
+           32     16650 only: Open source (emitter) interrupt output, for
+                  shared interrupts. (ADF has no special shared interrupt
+                  capabilities).
+           64     16650 only: Infrared RXD/TXD
+          128     16650 only using 7.372 MHz clock: Divided by four baud
+                  clock
+
+
+          7  Execution examples
+
+          Example of loading ADF using COM1 (see ADFCOM1.BAT):
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 10          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          adf COM1 3F8 4 38400 8192 8192 8
+
+
+          Example of loading ADF using COM2 (see ADFCOM2.BAT):
+
+          adf COM2 2F8 3 38400 8192 8192 8
+
+
+          Example of loading ADF with 16650:
+
+          adf COM1 3F8 4 38400 8192 8192 16650,16,8
+
+
+          Example of loading ADF with 16750:
+
+          adf COM1 3F8 4 38400 8192 8192 16750,32
+
+
+          Example of loading ADF with 7E1:
+
+          adf COM1 3F8 4 38400 8192 8192 8 26
+
+
+          Example of unloading ADF:
+
+          adf unload
+
+
+          Example of setting the watchdog time out to 2 minutes:
+
+          adf watch 120
+
+
+          Example of REMOTE.BAT, to execute on DOS-Shell in a BBS:
+
+          @echo off
+          rem %1 = Baud rate (used to detect local call)
+          if not %1@==0@ ctty COM%2
+          if not %1@==0@ adf watch on
+          command
+          adf watch off
+          ctty CON
+
+          The carrier watchdog will try to reboot the computer after about
+          60 seconds (if not changed) from the carrier drops. This may be
+          dangerous, especially in a multitasking environment (such as
+          Windows).
+
+
+          8  Baud rate calculation
+
+          A PC compatible serial port uses the following formula to
+          calculate the baud rate:
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 11          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          Baud = 115200 / Divisor
+
+          The Divisor is an integer number (whole number), 1 to 65535, used
+          to program the serial port (the UART chip). This means that only
+          certain baud rates are allowed.
+
+
+          Divisor:  Baud rate:    True baud rate on a 4x adapter:
+
+             1      115200 bps            460800 bps
+             2       57600 bps            230400 bps
+             3       38400 bps            153600 bps
+             4       28800 bps            115200 bps
+             5       23040 bps             92160 bps
+             6       19200 bps             76800 bps
+             7       16457 bps             65829 bps
+             8       14400 bps             57600 bps
+             9       12800 bps             51200 bps
+            10       11520 bps             46080 bps
+            11       10473 bps             41891 bps
+            12        9600 bps             38400 bps
+             .         .                     .
+             .         .                     .
+             X       115200/X             460800/X
+             .         .                     .
+             .         .                     .
+
+
+          When you specify a baud rate on the command line to ADF, ADF
+          calculates the Divisor and checks that the baud-rate is valid
+          (realizable).
+
+          If you for example use 76800 bps as a baud rate to ADF, the
+          Divisor will be 115200/76800 = 1.5, but this is not an integer
+          (whole number) and cannot be set. ADF will in this case display
+          an error message.
+
+
+          9  16550, 16650 and 16750 FIFO UARTs
+
+          ADF has full support of the 16550, the 16650 and the 16750 UART.
+          These UARTs are enhanced replacements of the standard 8250 and
+          16450 UARTs, using hardware buffers to get higher performance.
+
+          These buffers are called FIFO (First In First Out) buffers.
+
+          The 16550 has one 16 bytes receiver FIFO buffer, and one 16 bytes
+          transmitter FIFO buffer.
+
+          The 16650 has one 32 bytes receiver FIFO buffer, and one 32 bytes
+          transmitter FIFO buffer.
+
+          The 16750 has one 64 bytes receiver FIFO buffer, and one 16 bytes
+          transmitter FIFO buffer.
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 12          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          On the 16550 and on the 16750, you may set the trigger level of
+          the receiver FIFO buffer. On the 16650, you may set the trigger
+          level of both the receiver and transmitter FIFOs.
+
+
+          9.1  Receiver 16550-FIFO trigger level
+
+          The receiver 16550-FIFO trigger level can be set to 1, 4, 8 or 14
+          bytes of it's total 16 bytes buffer size.
+
+          The value is the number of bytes in the receiver FIFO buffer that
+          will generate an interrupt from the UART to the CPU.
+
+          The receiver FIFO buffer and it's trigger level, is the main
+          reason why many people replaces their old 8250 and 16450 UARTs
+          with 16550.
+
+          If you for example use a baud rate of 38400 bps (8N1), there will
+          be a new byte received each 260 us (microseconds). With an
+          ordinary UART, the CPU must answer to an interrupt from the UART
+          each 260 us, and read the byte and store it in memory.
+
+          If the CPU is unable to answer an interrupt at this rate, or if
+          some program has disable interrupts longer than 260 us, received
+          bytes will be lost. If you are downloading a file, you will get
+          lots of errors and resends.
+
+          The 16550 UART has a 16 bytes receiver FIFO buffer (and also a 16
+          bytes transmitter FIFO) so it can store up to 16 bytes until the
+          CPU must read and empty the buffer.
+
+          The receiver FIFO trigger level specifies when an interrupt
+          should be generated by the UART to the CPU.
+
+          If the trigger level is set to 4, the UART will generate an
+          interrupt after 4 bytes have been received, but will still fill
+          the buffer up to 16 bytes if the CPU doesn't answer the
+          interrupt. The rate of interrupts at 38400 bps will be 4*260 =
+          1040 us, and the tolerance to no answer from the CPU will be
+          (16-4)*260 = 3120 us.
+
+          The most common problem with high baud rates, is that programs
+          turns off interrupts during too long time. A trigger level of 14
+          would in most cases not be a good solution, normally a trigger
+          level of 8 is good enough, in some cases you may lower it to 4.
+          You should not choose a lower trigger level then necessary,
+          because it would load the CPU without giving any benefits.
+
+
+          9.2  Receiver 16650-FIFO trigger level
+
+          The receiver 16650-FIFO trigger level can be set to 8, 16, 24 or
+          28 bytes of it's total 32 bytes buffer size.
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 13          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          It's similar to the 16550-FIFO, see section 9.1 above, but it
+          will have higher tolerance against CPU response time and it will
+          load the CPU even less.
+
+
+          9.3  Transmitter 16650-FIFO trigger level
+
+          The transmitter 16650-FIFO trigger level can be set to 8, 16, 24
+          or 30 bytes of it's total 32 bytes buffer size.
+
+          This setting cannot be done on the 16550 or 16750. The 16550 and
+          16750 always have theirs transmitter FIFO trigger levels set to 1
+          by hardware.
+
+          When the number of not yet transmitted bytes in the FIFO goes
+          below the trigger level, the UART will generate an interrupt to
+          the CPU, so the interrupt service program can fill up the FIFO
+          with more characters to transmit.
+
+          The setting of the transmitter FIFO trigger level will affect how
+          much the transmission will load the CPU, and how fast the
+          transmission may be.
+
+          A lower trigger level means less CPU load, but maybe lower
+          transfer rates if long interrupt response times.
+
+          A higher trigger level means higher transfer rates on systems
+          with long interrupt response times, but it will load the CPU
+          more.
+
+
+          9.4  Receiver 16750-FIFO trigger level
+
+          The receiver 16750-FIFO trigger level can be set to 1, 16, 32 or
+          56 bytes of it's total 64 bytes buffer size.
+
+          It's similar to the 16550-FIFO, see section 9.1 above, but it
+          will have higher tolerance against CPU response time and it will
+          load the CPU even less.
+
+
+          10 Error messages
+
+          When ADF displays an error message, it will wait a moment before
+          continuing, so you are able to read the message when ADF is
+          executed among other programs in batch files (such as
+          AUTOEXEC.BAT).
+
+          All error messages with explanations:
+
+
+          "Argument error (command line error)."
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 14          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          ADF was unable to understand the command line arguments, please
+          see section 6 above. This error message will also be displayed if
+          numerical values on the command line are out of range.
+
+
+          "DOS v3.1 or newer required."
+
+          Your DOS is too old, you need to upgrade to a newer DOS version.
+
+
+          "Unable to handle TSRs in this environment."
+
+          ADF does a check that it can search and find it self in the DOS
+          memory (lower or upper). If this fails it will display this
+          message. Try using plain DOS without special memory managers or
+          program loaders.
+
+
+          "Error when releasing memory."
+
+          DOS reports error when freeing memory. This can occur during both
+          load and unload of ADF. Probably is the DOS memory allocation
+          blocks damaged (by some program).
+
+
+          "Invalid (not realizable) baud-rate."
+
+          The specified baud-rate cannot be used. Please see section 8
+          above.
+
+
+          "Not enough memory for buffers."
+
+          The memory given to ADF by DOS at load time is not enough to
+          satisfy the wanted size of the receive and transmit buffers.
+          Decrease the sizes or load ADF in low memory or in a larger high
+          memory block.
+
+
+          "Error when restoring interrupts."
+
+          This may occur when unloading ADF. Most common cause is that some
+          other programs also are using the same interrupts. Try to unload
+          all TSRs in the reverse order of how they where loaded.
+
+
+          "ADF already loaded."
+
+          This message will be displayed if you try to load ADF a second
+          time.
+
+
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 15          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          "ADF not loaded."
+
+          This message will be displayd if you use some of the ADF command
+          lines that requires ADF to be loaded as a TSR first (e.g. unload
+          and watch).
+
+
+          11 The ADFComCh program
+
+          When you run ADFComCh without any arguments, it will display the
+          following help text:
+
+          adfcomch addr
+
+          addr    Address in hex of COM port, 0-FFFF. Example: 3F8
+
+          ADFComCh checks if there is an UART at the specified port
+          address. The most common port addresses are:
+
+              COM1    3F8
+              COM2    2F8
+              COM3    3E8
+              COM4    2E8
+
+          The current UART settings will be cleared or modified. Please run
+          from plain DOS only, and reboot or load ADF after usage. Sets
+          ERRORLEVEL to:
+
+          255  Error
+            5  No UART
+            4  16450
+            3  16550
+            2  16650
+            1  16750
+
+
+          12 The ADFDebug program
+
+          When you run ADFDebug without any arguments, it will display the
+          following help text:
+
+          adfdebug command
+
+          'command' is one of the following commands:
+
+          L [opt] Load TSR, should be done after the FOSSIL load. Options:
+                  /t    Use time measurement.
+                  /sNN  Use ASCII NN as separator, default is 13 and 10 (CR
+                        and LF).
+          U       Unload TSR, should be done before the FOSSIL unload.
+          N       No output (default at load time).
+          S       Screen output.
+          F file  File output to the specified file.
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 16          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          12.1 Using ADFDebug
+
+          ADFDebug is a FOSSIL debugger. It is loaded as a TSR after the
+          FOSSIL has been loaded, and may write debug (trace) information
+          to the screen or to a file.
+
+          It is included for application programmers, and for advanced
+          users.
+
+          ADFDebug is loaded using the command L with or without the
+          options /t or /s. If /t is used, it will do time measurements of
+          the FOSSIL driver functions using timer ticks with the unit
+          0.838095 us (microseconds). The time will always include a small
+          offset error, independent of the FOSSIL driver used. Execution
+          time of interrupts that occurs during FOSSIL execution will be
+          included in the time measurement.
+
+          When loading with the option /t, ADFDebug may cause the internal
+          DOS clock (BIOS Timer Tick) to be incorrectly updated. Do only
+          use /t in plain DOS without any timer depending TSRs, including
+          hard disk caches (e.g. smartdrv), and reboot when done with
+          testing. During testing, do not hold down keys or move the mouse.
+
+          After loading ADFDebug, the command S or F is used to start debug
+          output, and the command N is used to stop the output.
+
+          When using the command F, you must also specify a file name. The
+          file is opened, written to and closed at each FOSSIL call, so
+          most programs using the FOSSIL will run very slow. The file may
+          also get very large.
+
+          ADFDebug uses DOS to write to the file, which may cause a system
+          crash when the FOSSIL is used by some programs (programs that
+          calls the FOSSIL from interrupt routines).
+
+          For testing purposes the program ADFTest (see below) is included.
+          It calls a lot of FOSSIL functions, and the calls are done
+          immediate after a BIOS Timer Tick count, to minimize time
+          measurement errors.
+
+          Example of usage of ADFDebug and ADFTest:
+
+          @echo off
+          del adf.lst
+          adf COM1 3F8 4 38400 2048 1024 8
+          adfdebug L /t /s9
+          adfdebug F adf.lst
+          adftest COM1
+          adfdebug U
+          adf unload
+
+
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 17          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          13 The ADFTerm program
+
+          When you run ADFTerm without any arguments, it will display the
+          following help text:
+
+          adfterm port
+
+          port    FOSSIL port number, 0-126, or COM-port, COM1-COM127.
+                  Example: 0 or COM1
+
+          ADFTerm is a very small and simple communication program, that
+          uses the ADF or any FOSSIL driver. It will set 2400 bps and 8N1
+          if FOSSIL is not locked.
+
+          You may call BBSes and use ANSI-BBS if you have ANSI.SYS loaded.
+
+
+          14 The ADFTest program
+
+          When you run ADFTest without any arguments, it will display the
+          following help text:
+
+          adftest port
+
+          port    FOSSIL port number, 0-126, or COM-port, COM1-COM127.
+                  Example: 0 or COM1
+
+          ADFTest is a FOSSIL test program.
+
+          ADFTest will send "ATE1<cr>" to the port and expect at least one
+          character as reply. A modem connected to the port will in most
+          cases do the job.
+
+          ADFTest is intended to be used with ADFDebug for testing and
+          verifying FOSSIL drivers.
+
+
+          15 Version history
+
+          v1.10 November 22, 1995
+
+          This is the first non-BETA version. The setting of the receiver
+          FIFO trigger level on the command line has been added since the
+          v1.00 BETAs from 1994.
+
+
+          v1.20 December 9, 1995
+
+          Many improvements and bug fixes has been done. ADF now includes
+          all FOSSIL functions 01H to 21H as X00 v1.50 does. It also
+          includes function 7EH and 7FH for "external application". ADF
+          will now display an error message if the baud-rate is not
+          realizable. Some more utility programs have been included, the
+          debug function has been moved into a separate program (option /d
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 18          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          is no longer valid).
+
+
+          v1.30 January 20, 1996
+
+          Bugfix of External Application. Added output of flag register in
+          ADFDebug. Bugfix of function 1E "Extended line control
+          initialization". Bugfix of function 04, 05, 1C, 14 when used on
+          illegal port number. Only check DL for port number (due to bugs
+          in other programs), valid port range is now 0-126. COM-port
+          number may be used instead of FOSSIL port number.
+
+
+          v1.31 January 22, 1996
+
+          The time limit of 30 days after installation has been removed.
+          ADF will not stop executing after 30 days as before, it will run
+          for ever, even if it is never registered.
+
+
+          v1.32 February 9, 1996
+
+          Bugfix of External Application, such as Video FOSSIL.
+
+
+          v1.40 March 23, 1996
+
+          Bugfix when input buffer was purged the RTS signal was not
+          restored (activated, made high) if it had been lowered due to
+          flow control. Receiver flow control hold and continue levels may
+          now be specified on the command line. Improved block read and
+          write (function 18H and 19H) for higher speed. ADFTest uses ATE1
+          to test block read/write with more characters. User settings of
+          line and modem control registers. Included support for 16650.
+          REGISTER.EXE v1.20 needed to register. Documentation improved.
+
+
+          v1.41 July 17, 1996
+
+          Changed the reboot method. User may specify watchdog time out,
+          default changed to 60 seconds. Documentation improved.
+
+
+          v1.42 November 3, 1996
+
+          The FOSSIL is now always kept alive, it is never actually closed,
+          until ADF is unloaded. Applications, including the DOS devices
+          COM1: and COM2:, that uses the BIOS serial communication
+          functions, will because of this now use the FOSSIL functions when
+          ADF is loaded. AnDan Software is now on the WWW at
+          http://www.digsys.se. The chapter about benchmarks has been
+          removed, because some users misunderstand its purpose. Does not
+          touch 16650 register if not 16650 has been set on command line,
+          else Windows may crash. The internal size of receive and transmit
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 19          AnDan Software FOSSIL Version 1.50                   Users Manual
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+
+
+          buffers adjusted so the reported sizes will be equal to the sizes
+          on the command line. Due to behavior in Windows 95 when ADF is
+          loaded in AUTOEXEC.BAT (not recommended), the Priority Interrupt
+          Controller enable bits are toggled on initialization calls to the
+          FOSSIL. Included support for 16750. ADFComCh has new ERRORLEVELs.
+
+
+          v1.43 March 9, 1997
+
+          reg@digsys.se has replaced reg@andan.edv.se as the registration
+          e-mail address.
+
+
+          v1.44 January 12, 1998
+
+          The FidoNet address 2:203/620 is no longer valid, and has been
+          removed from the programs and documentation. REGISTER.EXE v1.30
+          needed to register.
+
+
+          v1.45 January 1, 1999
+
+          ADF uses 16 bytes transmit FIFO for 16750, and not 64 bytes as
+          before. The TL16C750 data sheet from December 1997, says that
+          only 16 bytes may be written into the transmit FIFO at one time.
+
+
+          v1.46 July 13, 1999
+
+          Some more functions in ADFTerm added for terminating program with
+          FOSSIL kept opened. The manual updated. REGISTER.EXE v1.40 needed
+          to register.
+
+
+          v1.50 January 19, 2000
+
+          Changed from shareware to freeware. No registration needed
+          anymore.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+          Scandinavian Digital Systems                              Page 20
