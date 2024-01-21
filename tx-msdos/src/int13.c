@@ -11,7 +11,7 @@
 #include <i86.h>
 #include "int13.h"
 
-union REGS regs;
+static union REGS regs;
 
 /**
  * Get disk Geometry

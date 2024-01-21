@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include "utils.h"
 #include "int14.h"
+#include "int1a.h"
 #include "xm-send.h"
 
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
@@ -37,8 +38,11 @@ Disk* disk;
 unsigned int baud_rate = 0;
 unsigned char overhead_size = 6;
 unsigned int sector_size = 512;
-double bytes_per_second = 0;
 unsigned long start_sector = 0;
+
+double bytes_per_second = 0;
+double seconds_at_last_read = -1;
+double time_elapsed = 0;
 
 /**
  * Calculate 16-bit CRC
@@ -64,7 +68,7 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
 }
 
 static char catch_interrupt() {
-  if (interrupt_handler(disk, bytes_per_second)) {
+  if (interrupt_handler(disk, bytes_per_second, time_elapsed)) {
     fprintf(stderr, "\nReceived Interrupt. Aborting transfer.\n");
     int14_send_byte(0x18); // CANCEL
     state=END;
@@ -76,6 +80,24 @@ static char catch_interrupt() {
 void clean_up() {
   free_disk(disk);
   free(buf);
+}
+
+static void update_time_elapsed() {
+  double seconds_since_midnight;
+  unsigned char midnight_rollover_since_last_read;
+  unsigned long total_bytes_read = (unsigned long)((unsigned long)disk->current_sector - start_sector) * sector_size;
+
+  int1a_get_system_time(&seconds_since_midnight, &midnight_rollover_since_last_read);
+  if (midnight_rollover_since_last_read) {
+    seconds_at_last_read = 0;
+  }
+
+  if (seconds_at_last_read != -1) {
+    time_elapsed += (double)seconds_since_midnight - seconds_at_last_read;
+    bytes_per_second = (double)total_bytes_read / time_elapsed;
+  }
+
+  seconds_at_last_read = seconds_since_midnight;
 }
 
 /**
@@ -119,6 +141,7 @@ void xmodem_send(unsigned long start, unsigned long baud)
   while (1)
     { 
       catch_interrupt();
+      update_time_elapsed();
       switch (state)
         {
           case START:
@@ -130,15 +153,13 @@ void xmodem_send(unsigned long start, unsigned long baud)
           case CHECK:
             xmodem_state_check();
             break;
-                    case REBLOCK:
+          case REBLOCK:
           case END:
-            save_report(disk, start_sector, bytes_per_second);
-            goto done;
+            save_report(disk, start_sector, bytes_per_second, time_elapsed);
+            clean_up();
+            return;
         }
     }
-  
-  done:
-  clean_up();
 }
 
 /**
@@ -149,8 +170,8 @@ void xmodem_state_start()
   unsigned int wait = 0;
   short wait_time;
   
+  fprintf(stderr, "\nWaiting for receiver");
   while (state==START) {
-    fprintf(stderr, "\rWaiting for receiver... %u", wait);
     wait_time=1000;
     wait++;
     while (wait_time>=0) {
@@ -161,11 +182,12 @@ void xmodem_state_start()
       if (int14_data_waiting()!=0) {
         if (int14_read_byte()=='C') {
           state=BLOCK;
-          fprintf(stderr, "\nStarting Transfer.");
+          fprintf(stderr, "\nStarting Transfer!");
           return;
         }
       }
     }
+    fprintf(stderr, ".");
   }
 }
 

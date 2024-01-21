@@ -58,7 +58,7 @@ void print_update(
     fprintf(stderr, message);
 }
 
-void print_status(Disk* disk, double bytes_per_second) {
+void print_status(Disk* disk, double bytes_per_second, double time_elapsed) {
   double eta = (double) (disk->total_bytes - disk->current_byte) / bytes_per_second;
   fprintf(stderr, "\n");
   print_separator();
@@ -77,13 +77,22 @@ void print_status(Disk* disk, double bytes_per_second) {
   fprintf(stderr, " | ");
   print_c_s_h(disk->geometry, disk->geometry);
   fprintf(stderr, "\n");
-  print_separator();
-  fprintf(stderr, "\n ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f kB/S",
-      (unsigned int)(eta / 60 / 60),
-      (unsigned int)(eta / 60) % 60,
-      (unsigned long)eta % 60,
-      (float)bytes_per_second / 1024
+  if (time_elapsed != -1) {
+    print_separator();
+    fprintf(stderr, "\n Elapsed: %u Hours, %u Minutes, %lu Seconds",
+      (unsigned int)(time_elapsed / 60 / 60),
+      (unsigned int)(time_elapsed / 60) % 60,
+      (unsigned long)time_elapsed % 60
     );
+    fprintf(stderr, "\n");
+  }
+  print_separator();
+  fprintf(stderr, "\n ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f KiB/S",
+    (unsigned int)(eta / 60 / 60),
+    (unsigned int)(eta / 60) % 60,
+    (unsigned long)eta % 60,
+    (float)bytes_per_second / 1024
+  );
   fprintf(stderr, "\n");
   print_separator();
 }
@@ -101,14 +110,14 @@ static void print_help() {
   print_separator();
   fprintf(stderr, "\n Press `s` for the current status.");
   fprintf(stderr, "\n Press `l` to show the read log.");
-  fprintf(stderr, "\n Press `CTRL-C` or `ESC` to abort the transfer.");
+  fprintf(stderr, "\n Press `ESC` to abort the transfer.");
   fprintf(stderr, "\n Press any other key for this help menu.\n");
   print_separator();
 }
 
 void print_welcome(Disk* disk, double bytes_per_second) {
   fprintf(stderr, "Disk Image Summary...");
-  print_status(disk, bytes_per_second);
+  print_status(disk, bytes_per_second, (double)-1);
   fprintf(stderr, "\n\nBefore starting...\n");
   print_separator();
   fprintf(stderr, "\n Connect your serial cable from COM1 to your Linux receiver.\n");
@@ -129,7 +138,7 @@ int prompt_user(char* msg, char default_yes, char yes_key) {
   return 0;
 }
 
-int interrupt_handler(Disk* disk, double bytes_per_second) {
+int interrupt_handler(Disk* disk, double bytes_per_second, double time_elapsed) {
   char prompt;
   char printed_status = 0;
   char printed_help = 0;
@@ -143,7 +152,7 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
     }
 
     if ((prompt == 's' || prompt == 'S') && !printed_status) {
-      print_status(disk, bytes_per_second);
+      print_status(disk, bytes_per_second, time_elapsed);
       printed_status = 1;
     } else if ((prompt == 'l' || prompt == 'L') && !printed_read_logs) {
       print_read_logs_status(disk);
@@ -156,25 +165,25 @@ int interrupt_handler(Disk* disk, double bytes_per_second) {
   return 0;
 }
 
-static void print_report(Disk* disk, unsigned long start_sector, double bytes_per_second) {
+static void print_report(Disk* disk, unsigned long start_sector, double bytes_per_second, double time_elapsed) {
   unsigned long current_sector = disk->current_sector;
   
   fprintf(stderr, "Disk Image Report.");
 
   fprintf(stderr, "\n\nStarted at...");
   set_sector(disk, start_sector);
-  print_status(disk, bytes_per_second);
+  print_status(disk, bytes_per_second, -1);
   set_sector(disk, current_sector);
 
   fprintf(stderr, "\n\nEnded at...");
-  print_status(disk, bytes_per_second);
+  print_status(disk, bytes_per_second, time_elapsed);
 
   fprintf(stderr, "\n");
   print_read_logs_status(disk);
   fflush(stderr);
 }
 
-void save_report(Disk* disk, unsigned long start_sector, double bytes_per_second) {
+void save_report(Disk* disk, unsigned long start_sector, double bytes_per_second, double time_elapsed) {
   int fd = 0;
   int stderr_copy = 0;
   int error = 0;
@@ -200,7 +209,7 @@ void save_report(Disk* disk, unsigned long start_sector, double bytes_per_second
         break;
     }
     
-    print_report(disk, start_sector, bytes_per_second);
+    print_report(disk, start_sector, bytes_per_second, time_elapsed);
 
     if (dup2(stderr_copy, 2) < 0) {
       fprintf(stderr, "\nUnable to replace stderr"); 
