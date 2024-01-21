@@ -36,7 +36,6 @@ Disk* disk;
  * 2   CRC
  * 1   ACK/NAK
 */
-unsigned int baud_rate = 0;
 unsigned char overhead_size = 6;
 unsigned int sector_size = 512;
 unsigned long start_sector = 0;
@@ -98,11 +97,10 @@ static void update_time_elapsed() {
 /**
  * XMODEM-512 send file - main entrypoint.
  */
-void xmodem_send(unsigned long start, unsigned long baud)
+void xmodem_send(unsigned long start, unsigned long baud_rate)
 {
   start_sector = start;
-  baud_rate = baud;
-  bytes_per_second = (double)baud_rate / 8 - overhead_size;
+  bytes_per_second = (double)baud_rate / 9 - overhead_size;
   buf=malloc(sector_size);
   disk=create_disk();
 
@@ -177,7 +175,7 @@ void xmodem_state_start()
       if (int14_data_waiting()!=0) {
         if (int14_read_byte()=='C') {
           state=BLOCK;
-          fprintf(stderr, "\nStarting Transfer!");
+          fprintf(stderr, "\nStarting Transfer!\n");
           return;
         }
       }
@@ -231,8 +229,7 @@ void xmodem_state_block(void)
     if (catch_interrupt()) return;
 
     update_read_status(retry_count);
-    print_update("\rWarn: ", " Retry # ", disk);
-    fprintf(stderr, "%d", retry_count);
+    fprintf(stderr, "R\b");
 
     if (!(retry_count % DISK_RESET_INTERVAL)) {
       int13_reset_disk_system(disk);
@@ -246,14 +243,15 @@ void xmodem_state_block(void)
   if (read_error)
     {
       // retries failed
-      print_update("\rErr : ", " Failed.", disk);
-      fprintf(stderr, "\nErr : Data may be corrupted. Sending data ... ");
+      fprintf(stderr, "E");
     }
   else
     {
       update_read_status(retry_count);
-      print_update("\nSend: ", " ... ", disk);
+      fprintf(stderr, "S\b");
     }
+
+  calced_crc=xmodem_calc_crc(buf,sector_size);
 
   int14_send_byte(0x01);  // SOH
   int14_send_byte(block_num); // block # (mod 256)
@@ -262,14 +260,12 @@ void xmodem_state_block(void)
   for (i=0;i<sector_size;i++)     // Send the data
     int14_send_byte(buf[i]);
 
-  calced_crc=xmodem_calc_crc(buf,sector_size);
   int14_send_byte((calced_crc>>8));       // CRC Hi
-
   // discard anything received while this block was being sent
   while (int14_data_waiting()) {
     int14_read_byte();
   }
-
+  // Send the last byte
   int14_send_byte(calced_crc&0xFF);       // CRC Lo
 
   state=CHECK;
@@ -286,7 +282,7 @@ void xmodem_state_check(void)
     switch (response) {
       case 0x00: break; // no response
       case 0x06: // ACK
-        fprintf(stderr, "ACK!");
+        fprintf(stderr, "A");
         if (disk->current_sector >= disk->total_sectors) {
           state=END;
           fprintf(stderr, "\nTransfer complete!");
@@ -298,12 +294,12 @@ void xmodem_state_check(void)
         }
         break;
       case 0x15: // NAK
-        fprintf(stderr, "NAK!");
-        delay(100); // wait for receiver to flush buffer
+        fprintf(stderr, "N");
+        delay(50); // wait for receiver to flush buffer
         state=BLOCK;  // Resend.
         break;
       case 0x18: // CAN
-        fprintf(stderr, "CANCEL!");
+        fprintf(stderr, "C");
         state=END;   // end.
         break;
       default:

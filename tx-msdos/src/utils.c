@@ -120,8 +120,11 @@ void print_status(Disk* disk, double bytes_per_second, double time_elapsed) {
   print_separator();
   print_elapsed(disk, time_elapsed, (double)-1);
   fprintf(stderr, "\n");
-
+  
   print_separator();
+  print_update("\n ", "\n", disk);
+  print_separator();
+  fprintf(stderr, "\n");
 }
 
 void print_read_logs_status(Disk* disk) {
