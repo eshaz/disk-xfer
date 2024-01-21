@@ -39,6 +39,8 @@ void free_disk();
 
 void set_sector(Disk* disk, unsigned long sector);
 
+void set_geometry(Disk* disk, CHS geometry);
+
 void add_read_log(Disk* disk, unsigned char retry_count);
 
 void update_read_log(Disk* disk, unsigned char retry_count);

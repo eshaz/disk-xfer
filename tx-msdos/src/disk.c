@@ -54,6 +54,12 @@ void set_sector(Disk* disk, unsigned long sector) {
   disk->current_byte = sector*512;
 }
 
+void set_geometry(Disk* disk, CHS geometry) {
+  disk->geometry = geometry;
+  disk->total_sectors = (unsigned long)(disk->geometry.c + 1) * (disk->geometry.h + 1) * disk->geometry.s - 1;
+  disk->total_bytes = (unsigned long)(disk->total_sectors + 1) * 512;
+}
+
 void add_read_log(Disk* disk, unsigned char retry_count) {
   ReadLog* rl = malloc(sizeof(ReadLog));
   rl->sector = disk->current_sector;

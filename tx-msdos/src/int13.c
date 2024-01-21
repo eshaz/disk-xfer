@@ -18,6 +18,7 @@ static union REGS regs;
  */
 unsigned char int13_disk_geometry(Disk* disk)
 {
+  CHS geometry;
   // BIOS call to get disk geometry.
   regs.h.ah=AH_GET_DRIVE_PARAMETERS;
   regs.h.dl=disk->device_id;
@@ -34,14 +35,13 @@ unsigned char int13_disk_geometry(Disk* disk)
    */
 
   // Unpack disk geometry.
-  disk->geometry.c=regs.h.ch;              // Get lower 8 bits of cylinder count.
-  disk->geometry.c|=((regs.h.cl)&0xC0)<<2; // Get upper two bits of cylinder count.
-  disk->geometry.c+=1;
-  disk->geometry.h=regs.h.dh;
-  disk->geometry.s=regs.h.cl&0x3F;         // mask off high order bits of cylinder count (upper 2-bits)
+  geometry.c=regs.h.ch;              // Get lower 8 bits of cylinder count.
+  geometry.c|=((regs.h.cl)&0xC0)<<2; // Get upper two bits of cylinder count.
+  geometry.c+=1;
+  geometry.h=regs.h.dh;
+  geometry.s=regs.h.cl&0x3F;         // mask off high order bits of cylinder count (upper 2-bits)
 
-  disk->total_sectors = (unsigned long)(disk->geometry.c + 1) * (disk->geometry.h + 1) * disk->geometry.s - 1;
-  disk->total_bytes = (unsigned long)(disk->total_sectors + 1) * 512;
+  set_geometry(disk, geometry);
 
   // 0 if successful, 1 if not.
   return regs.x.cflag;

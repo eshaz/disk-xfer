@@ -58,42 +58,69 @@ void print_update(
     fprintf(stderr, message);
 }
 
-void print_status(Disk* disk, double bytes_per_second, double time_elapsed) {
-  double eta = (double) (disk->total_bytes - disk->current_byte) / bytes_per_second;
-  fprintf(stderr, "\n");
-  print_separator();
-  fprintf(stderr, "\n SOURCE : 0x%02X, C: drive\n",disk->device_id);
-  print_separator();
+static void print_drive_summary(Disk* disk) {
+  fprintf(stderr, "\n SOURCE : 0x%02X, C: drive",disk->device_id);
+}
+
+static void print_start_blocks(Disk* disk) {
   fprintf(stderr, "\n START  : Byte: ");
   print_right_aligned(disk->current_byte, disk->total_bytes);
   fprintf(stderr, " | Block: ");
   print_right_aligned(disk->current_sector, disk->total_sectors);
   fprintf(stderr, " | ");
   print_c_s_h(disk->position, disk->geometry);
+}
+
+static void print_end_blocks(Disk* disk) {
   fprintf(stderr, "\n END    : Byte: ");
   print_right_aligned(disk->total_bytes, disk->total_bytes);
   fprintf(stderr, " | Block: ");
   print_right_aligned(disk->total_sectors, disk->total_sectors);
   fprintf(stderr, " | ");
   print_c_s_h(disk->geometry, disk->geometry);
-  fprintf(stderr, "\n");
-  if (time_elapsed != -1) {
-    print_separator();
-    fprintf(stderr, "\n Elapsed: %u Hours, %u Minutes, %lu Seconds",
-      (unsigned int)(time_elapsed / 60 / 60),
-      (unsigned int)(time_elapsed / 60) % 60,
-      (unsigned long)time_elapsed % 60
-    );
-    fprintf(stderr, "\n");
-  }
-  print_separator();
-  fprintf(stderr, "\n ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f KiB/S",
-    (unsigned int)(eta / 60 / 60),
-    (unsigned int)(eta / 60) % 60,
-    (unsigned long)eta % 60,
-    (float)bytes_per_second / 1024
+}
+
+static void print_elapsed(Disk* disk, double time, double bytes_per_second) { 
+  fprintf(stderr, "\n Elapsed: %u Hours, %u Minutes, %lu Seconds",
+    (unsigned int)(time / 60 / 60),
+    (unsigned int)(time / 60) % 60,
+    (unsigned long)time % 60
   );
+  if (bytes_per_second != -1) {
+    fprintf(stderr, " @ %.2f B/s", bytes_per_second);
+  }
+}
+
+static void print_estimated(Disk* disk, double bytes_per_second) {
+  double time = (double) (disk->total_bytes - disk->current_byte) / bytes_per_second;
+
+  fprintf(stderr, "\n ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f B/s",
+    (unsigned int)(time / 60 / 60),
+    (unsigned int)(time / 60) % 60,
+    (unsigned long)time % 60,
+    bytes_per_second
+  );
+}
+
+void print_status(Disk* disk, double bytes_per_second, double time_elapsed) {
   fprintf(stderr, "\n");
+  print_separator();
+  print_drive_summary(disk);
+  fprintf(stderr, "\n");
+
+  print_separator();
+  print_start_blocks(disk);
+  print_end_blocks(disk);
+  fprintf(stderr, "\n");
+
+  print_separator();
+  print_estimated(disk, bytes_per_second);
+  fprintf(stderr, "\n");
+
+  print_separator();
+  print_elapsed(disk, time_elapsed, (double)-1);
+  fprintf(stderr, "\n");
+
   print_separator();
 }
 
@@ -117,7 +144,21 @@ static void print_help() {
 
 void print_welcome(Disk* disk, double bytes_per_second) {
   fprintf(stderr, "Disk Image Summary...");
-  print_status(disk, bytes_per_second, (double)-1);
+  fprintf(stderr, "\n");
+  print_separator();
+  print_drive_summary(disk);
+  fprintf(stderr, "\n");
+
+  print_separator();
+  print_start_blocks(disk);
+  print_end_blocks(disk);
+  fprintf(stderr, "\n");
+
+  print_separator();
+  print_estimated(disk, bytes_per_second);
+  fprintf(stderr, "\n");
+  print_separator();
+
   fprintf(stderr, "\n\nBefore starting...\n");
   print_separator();
   fprintf(stderr, "\n Connect your serial cable from COM1 to your Linux receiver.\n");
@@ -166,19 +207,49 @@ int interrupt_handler(Disk* disk, double bytes_per_second, double time_elapsed) 
 }
 
 static void print_report(Disk* disk, unsigned long start_sector, double bytes_per_second, double time_elapsed) {
+  CHS geometry = disk->geometry;
+  CHS position = disk->position;
   unsigned long current_sector = disk->current_sector;
-  
-  fprintf(stderr, "Disk Image Report.");
 
-  fprintf(stderr, "\n\nStarted at...");
+  fprintf(stderr, "Disk Image Report for...\n");
+  print_separator();
+  print_drive_summary(disk);
+  print_elapsed(disk, time_elapsed, bytes_per_second);
+  fprintf(stderr, "\n");
+  print_separator();
+
+  // set position to start to show requested image
   set_sector(disk, start_sector);
-  print_status(disk, bytes_per_second, -1);
+  fprintf(stderr, "\n\nRequested Image...\n");
+  print_separator();
+  print_start_blocks(disk);
+  print_end_blocks(disk);
+  fprintf(stderr, "\n");
+  print_separator();
+  
+  // set position to show end of copy
+  // manually change geometry to print the correct values for the end
+  disk->geometry = position;
+  disk->total_bytes = disk->current_byte;
+  disk->total_sectors = current_sector;
+
+  fprintf(stderr, "\n\nTransferred Image...\n");
+  print_separator();
+  print_start_blocks(disk);
+  print_end_blocks(disk);
+  fprintf(stderr, "\n");
+  print_separator();
+
+  // put everything back
+  set_geometry(disk, geometry);
   set_sector(disk, current_sector);
 
-  fprintf(stderr, "\n\nEnded at...");
-  print_status(disk, bytes_per_second, time_elapsed);
-
+  fprintf(stderr, "\n\nBlocks Sent...\n");
+  print_separator();
+  print_update("\n ", "\n", disk);
+  print_separator();
   fprintf(stderr, "\n");
+
   print_read_logs_status(disk);
   fflush(stderr);
 }

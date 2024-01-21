@@ -3,6 +3,8 @@
 
 #define AH_GET_SYSTEM_TIME 0x00
 
-void int1a_get_system_time(double* seconds_since_midnight, unsigned char* midnight_rollover_since_last_read);
+unsigned long int1a_get_system_time();
+
+double int1a_system_ticks_to_seconds(unsigned long ticks);
 
 #endif /* INT13_H */

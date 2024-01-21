@@ -24,12 +24,23 @@ Notes:	there are approximately 18.2 clock ticks per second, 1800B0h per 24 hrs
 	DR DOS 3.31 - DR-DOS 7.03 handle AL as a flag.
 */
 static const double time_divisor = 18.206481481; // 0x1800b0 / 24 / 60 / 60
+static unsigned int days = 0;
 
-void int1a_get_system_time(double* seconds_since_midnight, unsigned char* midnight_rollover_since_last_read) {
+unsigned long int1a_get_system_time() {
+  unsigned long ticks;
+
   regs.h.ah=0x00;
-
   int86(0x1A,&regs,&regs);
 
-  *seconds_since_midnight = (double)((unsigned long)(regs.x.cx << 16) | regs.x.dx) / time_divisor;
-  *midnight_rollover_since_last_read = regs.h.al;
+  if (regs.w.ax & 0xff) ++days;
+  ticks = regs.w.cx;
+  ticks <<= 16;
+  ticks |= regs.w.dx;
+  ticks += days * 0x1800b0;
+
+  return ticks;
+}
+
+double int1a_system_ticks_to_seconds(unsigned long ticks) {
+  return (double)ticks / time_divisor;
 }

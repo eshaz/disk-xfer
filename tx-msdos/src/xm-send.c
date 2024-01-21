@@ -41,7 +41,7 @@ unsigned int sector_size = 512;
 unsigned long start_sector = 0;
 
 double bytes_per_second = 0;
-double seconds_at_last_read = -1;
+unsigned long ticks_at_start = -1;
 double time_elapsed = 0;
 
 /**
@@ -83,21 +83,15 @@ void clean_up() {
 }
 
 static void update_time_elapsed() {
-  double seconds_since_midnight;
-  unsigned char midnight_rollover_since_last_read;
   unsigned long total_bytes_read = (unsigned long)((unsigned long)disk->current_sector - start_sector) * sector_size;
+  unsigned long ticks = int1a_get_system_time();
 
-  int1a_get_system_time(&seconds_since_midnight, &midnight_rollover_since_last_read);
-  if (midnight_rollover_since_last_read) {
-    seconds_at_last_read = 0;
+  if (ticks_at_start == -1) {
+    ticks_at_start = ticks;
   }
 
-  if (seconds_at_last_read != -1) {
-    time_elapsed += (double)seconds_since_midnight - seconds_at_last_read;
-    bytes_per_second = (double)total_bytes_read / time_elapsed;
-  }
-
-  seconds_at_last_read = seconds_since_midnight;
+  time_elapsed = int1a_system_ticks_to_seconds(ticks - ticks_at_start);
+  bytes_per_second = (double)total_bytes_read / time_elapsed;
 }
 
 /**
