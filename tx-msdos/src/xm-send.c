@@ -17,9 +17,9 @@
 #include "xm-send.h"
 
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
-#define MAX_READ_RETRY_COUNT 20   // number of times to retry when a read error is encountered (up to 255)
+#define MAX_READ_RETRY_COUNT 255  // number of times to retry when a read error is encountered (up to 255)
 #define READ_RETRY_DELAY_MS  100  // delay introduced when retrying to read
-#define DISK_RESET_INTERVAL  2    // interval to reset the disk heads when an error occurs
+#define DISK_RESET_INTERVAL  1    // interval to reset the disk heads when an error occurs
 
 ProtocolState state=START;
 
@@ -224,7 +224,7 @@ void xmodem_state_block(void)
   while (
     response != 0x15 && // don't do retries after a NAK response since the block was already retried
     read_error &&
-    retry_count <= MAX_READ_RETRY_COUNT
+    retry_count < MAX_READ_RETRY_COUNT
   ) {
     if (catch_interrupt()) return;
 
