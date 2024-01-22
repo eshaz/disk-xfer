@@ -17,6 +17,23 @@
 
 typedef enum _state {START, BLOCK, CHECK, REBLOCK, END} ProtocolState;
 
+/*
+length | description
+     1 | SOH byte (0x01)
+     1 | block # (mod 256)
+     1 | 0xFF - BLOCK # (simple checksum)
+   512 | data
+     2 | CRC
+*/
+typedef struct {
+  unsigned char soh_byte;
+  unsigned char block;
+  unsigned char block_checksum;
+  char data[512];
+  unsigned char crc_hi;
+  unsigned char crc_lo;
+} Packet;
+
 /**
  * XMODEM-512 send file - main entrypoint.
  */

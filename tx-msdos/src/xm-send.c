@@ -16,15 +16,14 @@
 #include "xm-send.h"
 
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
-#define MAX_READ_RETRY_COUNT 255  // number of times to retry when a read error is encountered (up to 255)
+#define MAX_READ_RETRY_COUNT 32   // number of times to retry when a read error is encountered (up to 255)
 #define READ_RETRY_DELAY_MS  100  // delay introduced when retrying to read
 #define DISK_RESET_INTERVAL  1    // interval to reset the disk heads when an error occurs
 
 ProtocolState state=START;
 
-unsigned char block_num=1;
 unsigned char response=0;
-char* buf;
+Packet* packet;
 Disk* disk;
 
 /**
@@ -97,7 +96,7 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
 
 void clean_up() {
   free_disk(disk);
-  free(buf);
+  free(packet);
 }
 
 /**
@@ -106,7 +105,10 @@ void clean_up() {
 void xmodem_send(unsigned long start, unsigned long baud_rate)
 {
   start_sector = start;
-  buf=malloc(sector_size);
+  packet=malloc(sizeof(Packet));
+  packet->soh_byte=1;
+  packet->block=1;
+  
   disk=create_disk();
 
   if (int13_disk_geometry(disk)==1) {
@@ -140,7 +142,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     { 
       catch_interrupt();
       // update time every once in a while to avoid midnight rollover issues
-      if (block_num==0) update_time_elapsed(disk, start_sector);
+      if (packet->block==0) update_time_elapsed(disk, start_sector);
       switch (state)
         {
           case START:
@@ -196,6 +198,9 @@ void xmodem_state_start()
  */
 void xmodem_state_block(void)
 {
+  char* packet_ptr= (unsigned char*)packet;
+  char* buf = &(packet->data);
+
   short i=0;
   unsigned short calced_crc;
   unsigned char retry_count = 0;
@@ -236,20 +241,18 @@ void xmodem_state_block(void)
 
   calced_crc=xmodem_calc_crc(buf,sector_size);
 
-  int14_send_byte(0x01);  // SOH
-  int14_send_byte(block_num); // block # (mod 256)
-  int14_send_byte(0xFF-block_num); // 0xFF - BLOCK # (simple checksum)
+  packet->block_checksum=0xFF-packet->block;
+  packet->crc_hi = calced_crc>>8;
+  packet->crc_lo = calced_crc&0xFF;
 
-  for (i=0;i<sector_size;i++)     // Send the data
-    int14_send_byte(buf[i]);
+  for (i=0; i < sizeof(Packet); i++) {
+    int14_send_byte(packet_ptr[i]);
+  }
 
-  int14_send_byte((calced_crc>>8));       // CRC Hi
   // discard anything received while this block was being sent
   while (int14_data_waiting()) {
     int14_read_byte();
   }
-  // Send the last byte
-  int14_send_byte(calced_crc&0xFF);       // CRC Lo
 
   state=CHECK;
 }
@@ -271,8 +274,8 @@ void xmodem_state_check(void)
           fprintf(stderr, "\nTransfer complete!");
         } else {
           state=BLOCK;
-          block_num++;
-          block_num&=0xff;
+          packet->block++;
+          packet->block&=0xff;
           set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
         }
         break;
