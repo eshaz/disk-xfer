@@ -2,7 +2,25 @@
 #include <stdio.h>
 #include <io.h>
 #include <fcntl.h>
+#include "int1a.h"
 #include "utils.h"
+
+double time_elapsed;
+double bytes_per_second;
+
+void update_time_elapsed(Disk* disk, unsigned long start_sector) {
+  static unsigned long ticks_at_start = 0;
+
+  unsigned long total_bytes_read = (unsigned long)((unsigned long)disk->current_sector - start_sector) * 512;
+  unsigned long ticks = int1a_get_system_time();
+
+  if (ticks_at_start == 0) {
+    ticks_at_start = ticks;
+  }
+
+  time_elapsed = int1a_system_ticks_to_seconds(ticks - ticks_at_start);
+  bytes_per_second = (double)total_bytes_read / time_elapsed;
+}
 
 static char get_number_length(unsigned long n) {
     if (n < 10) return 1;
@@ -80,29 +98,29 @@ static void print_end_blocks(Disk* disk) {
   print_c_s_h(disk->geometry, disk->geometry);
 }
 
-static void print_elapsed(Disk* disk, double time, double bytes_per_second) { 
+static void print_elapsed(Disk* disk, double time, double bps) { 
   fprintf(stderr, "\n Elapsed: %u Hours, %u Minutes, %lu Seconds",
     (unsigned int)(time / 60 / 60),
     (unsigned int)(time / 60) % 60,
     (unsigned long)time % 60
   );
-  if (bytes_per_second != -1) {
-    fprintf(stderr, " @ %.2f B/s", bytes_per_second);
+  if (bps != -1) {
+    fprintf(stderr, " @ %.2f B/s", bps);
   }
 }
 
-static void print_estimated(Disk* disk, double bytes_per_second) {
-  double time = (double) (disk->total_bytes - disk->current_byte) / bytes_per_second;
+static void print_estimated(Disk* disk, double bps) {
+  double time = (double) (disk->total_bytes - disk->current_byte) / bps;
 
   fprintf(stderr, "\n ETA    : %u Hours, %u Minutes, %lu Seconds @ %.2f B/s",
     (unsigned int)(time / 60 / 60),
     (unsigned int)(time / 60) % 60,
     (unsigned long)time % 60,
-    bytes_per_second
+    bps
   );
 }
 
-void print_status(Disk* disk, double bytes_per_second, double time_elapsed) {
+void print_status(Disk* disk) {
   fprintf(stderr, "\n");
   print_separator();
   print_drive_summary(disk);
@@ -145,7 +163,7 @@ static void print_help() {
   print_separator();
 }
 
-void print_welcome(Disk* disk, double bytes_per_second) {
+void print_welcome(Disk* disk, double estimated_bytes_per_second) {
   fprintf(stderr, "Disk Image Summary...");
   fprintf(stderr, "\n");
   print_separator();
@@ -158,7 +176,7 @@ void print_welcome(Disk* disk, double bytes_per_second) {
   fprintf(stderr, "\n");
 
   print_separator();
-  print_estimated(disk, bytes_per_second);
+  print_estimated(disk, estimated_bytes_per_second);
   fprintf(stderr, "\n");
   print_separator();
 
@@ -182,7 +200,7 @@ int prompt_user(char* msg, char default_yes, char yes_key) {
   return 0;
 }
 
-int interrupt_handler(Disk* disk, double bytes_per_second, double time_elapsed) {
+int interrupt_handler(Disk* disk, unsigned long start_sector) {
   char prompt;
   char printed_status = 0;
   char printed_help = 0;
@@ -196,7 +214,8 @@ int interrupt_handler(Disk* disk, double bytes_per_second, double time_elapsed) 
     }
 
     if ((prompt == 's' || prompt == 'S') && !printed_status) {
-      print_status(disk, bytes_per_second, time_elapsed);
+      update_time_elapsed(disk, start_sector);
+      print_status(disk);
       printed_status = 1;
     } else if ((prompt == 'l' || prompt == 'L') && !printed_read_logs) {
       print_read_logs_status(disk);
@@ -209,7 +228,7 @@ int interrupt_handler(Disk* disk, double bytes_per_second, double time_elapsed) 
   return 0;
 }
 
-static void print_report(Disk* disk, unsigned long start_sector, double bytes_per_second, double time_elapsed) {
+static void print_report(Disk* disk, unsigned long start_sector) {
   CHS geometry = disk->geometry;
   CHS position = disk->position;
   unsigned long current_byte = disk->current_byte;
@@ -258,13 +277,15 @@ static void print_report(Disk* disk, unsigned long start_sector, double bytes_pe
   fflush(stderr);
 }
 
-void save_report(Disk* disk, unsigned long start_sector, double bytes_per_second, double time_elapsed) {
+void save_report(Disk* disk, unsigned long start_sector) {
   int fd = 0;
   int stderr_copy = 0;
   int error = 0;
   char path[1024];
+  update_time_elapsed(disk, start_sector);
 
   while (prompt_user("\nPress `s` to save a status report, any other key to quit?: ", 0, 's')) {
+
     fprintf(stderr, "\nEnter file path to save report: ");
     scanf("\n%1023[^\n]", path);
 
@@ -284,7 +305,7 @@ void save_report(Disk* disk, unsigned long start_sector, double bytes_per_second
         break;
     }
     
-    print_report(disk, start_sector, bytes_per_second, time_elapsed);
+    print_report(disk, start_sector);
 
     if (dup2(stderr_copy, 2) < 0) {
       fprintf(stderr, "\nUnable to replace stderr"); 

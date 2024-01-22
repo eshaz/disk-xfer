@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include "utils.h"
 #include "int14.h"
-#include "int1a.h"
 #include "xm-send.h"
 
 #define BYTE_XMODEM_START    0x43 // C (for CRC)
@@ -40,9 +39,38 @@ unsigned char overhead_size = 6;
 unsigned int sector_size = 512;
 unsigned long start_sector = 0;
 
-double bytes_per_second = 0;
-unsigned long ticks_at_start = -1;
-double time_elapsed = 0;
+static char catch_interrupt() {
+  if (interrupt_handler(disk, start_sector)) {
+    fprintf(stderr, "\nReceived Interrupt. Aborting transfer.\n");
+    state=END;
+    return 1;
+  }
+  return 0;
+}
+
+static void update_read_status(unsigned char retry_count) {
+  if (disk->status_code) {
+    // there is an error
+    if (
+      disk->read_log_tail == 0 || // read log is empty
+      disk->read_log_tail->status_code != disk->status_code || // error status is different
+      disk->read_log_tail->sector != disk->current_sector // error sector is different
+    ) {
+      // new error, add to the read log
+      fprintf(stderr, "\nRead Error: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
+      add_read_log(disk, retry_count);
+    } else {
+      // same error, update the retry count
+      update_read_log(disk, retry_count);
+    }
+  } else if (retry_count > 0) {
+    // there is a success, but only after retrying
+    fprintf(stderr, "\nError Recovered: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
+    add_read_log(disk, retry_count);
+  } else {
+    // there is a success, and no retries, don't log
+  }
+}
 
 /**
  * Calculate 16-bit CRC
@@ -67,31 +95,9 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
   return crc;
 }
 
-static char catch_interrupt() {
-  if (interrupt_handler(disk, bytes_per_second, time_elapsed)) {
-    fprintf(stderr, "\nReceived Interrupt. Aborting transfer.\n");
-    int14_send_byte(0x18); // CANCEL
-    state=END;
-    return 1;
-  }
-  return 0;
-}
-
 void clean_up() {
   free_disk(disk);
   free(buf);
-}
-
-static void update_time_elapsed() {
-  unsigned long total_bytes_read = (unsigned long)((unsigned long)disk->current_sector - start_sector) * sector_size;
-  unsigned long ticks = int1a_get_system_time();
-
-  if (ticks_at_start == -1) {
-    ticks_at_start = ticks;
-  }
-
-  time_elapsed = int1a_system_ticks_to_seconds(ticks - ticks_at_start);
-  bytes_per_second = (double)total_bytes_read / time_elapsed;
 }
 
 /**
@@ -100,7 +106,6 @@ static void update_time_elapsed() {
 void xmodem_send(unsigned long start, unsigned long baud_rate)
 {
   start_sector = start;
-  bytes_per_second = (double)baud_rate / 9 - overhead_size;
   buf=malloc(sector_size);
   disk=create_disk();
 
@@ -124,7 +129,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
   }
 
   set_sector(disk, start_sector);
-  print_welcome(disk, bytes_per_second);
+  print_welcome(disk, (double)baud_rate / 9 - overhead_size);
   if (!prompt_user("\n\nStart Transfer? [y]: ", 1, 'y')) {
     fprintf(stderr, "\nAborted.");
     return;
@@ -134,7 +139,8 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
   while (1)
     { 
       catch_interrupt();
-      update_time_elapsed();
+      // update time every once in a while to avoid midnight rollover issues
+      if (block_num==0) update_time_elapsed(disk, start_sector);
       switch (state)
         {
           case START:
@@ -148,7 +154,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
             break;
           case REBLOCK:
           case END:
-            save_report(disk, start_sector, bytes_per_second, time_elapsed);
+            save_report(disk, start_sector);
             clean_up();
             return;
         }
@@ -176,35 +182,12 @@ void xmodem_state_start()
         if (int14_read_byte()=='C') {
           state=BLOCK;
           fprintf(stderr, "\nStarting Transfer!\n");
+          update_time_elapsed(disk, start_sector);
           return;
         }
       }
     }
     fprintf(stderr, ".");
-  }
-}
-
-static void update_read_status(unsigned char retry_count) {
-  if (disk->status_code) {
-    // there is an error
-    if (
-      disk->read_log_tail == 0 || // read log is empty
-      disk->read_log_tail->status_code != disk->status_code || // error status is different
-      disk->read_log_tail->sector != disk->current_sector // error sector is different
-    ) {
-      // new error, add to the read log
-      fprintf(stderr, "\nRead Error: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
-      add_read_log(disk, retry_count);
-    } else {
-      // same error, update the retry count
-      update_read_log(disk, retry_count);
-    }
-  } else if (retry_count > 0) {
-    // there is a success, but only after retrying
-    fprintf(stderr, "\nError Recovered: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
-    add_read_log(disk, retry_count);
-  } else {
-    // there is a success, and no retries, don't log
   }
 }
 
