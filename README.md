@@ -23,6 +23,10 @@ $ rx diskimage.img
 
 If everything is connected correctly, tx will send the data over the COM1: serial port to the destination machine in the requested image file.
 
+## Developing
+### Formatting
+* `clang-format -i -style=WebKit *.c *.h`
+
 ## Using Drivers for faster baud rates
 
 ### ADF driver (Recommended)

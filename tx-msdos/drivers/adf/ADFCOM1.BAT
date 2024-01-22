@@ -10,7 +10,7 @@ rem    �   �  �      �     �����������Size of rece
 rem    �   �  �      �     �     �����Size of transmit buffer, 256-16384.
 rem    �   �  �      �     �     �  ��Receiver FIFO trigger level, 1, 4, 8, 14.
 rem    �   �  �      �     �     �  �
-adf COM1 3F8  4 115200  1024  1024  8
+adf COM1 3F8  4 115200  8192  8192  8
 rem                        �        �
 rem    ���������������������        �
 rem    �               ��������������   Advanced options:

@@ -1,6 +1,6 @@
 /**
  * tx - disk-send
- * 
+ *
  * BIOS INT 13H (Disk) routines
  *
  * Thomas Cherryhomes <thom.cherryhomes@gmail.com>
@@ -13,8 +13,8 @@
 #ifndef INT13_H
 #define INT13_H
 
-#define AH_RESET_DISK_SYSTEM    0x00
-#define AH_READ_DISK_SECTORS    0x02
+#define AH_RESET_DISK_SYSTEM 0x00
+#define AH_READ_DISK_SECTORS 0x02
 #define AH_GET_DRIVE_PARAMETERS 0x08
 
 /**

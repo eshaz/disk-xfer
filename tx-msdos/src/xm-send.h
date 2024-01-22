@@ -1,6 +1,6 @@
 /**
  * tx - disk-send
- * 
+ *
  * XMODEM-512 (512K block) routines
  *
  * Thomas Cherryhomes <thom.cherryhomes@gmail.com>
@@ -8,14 +8,18 @@
  * Licensed under GPL Version 3.0
  */
 
-#include "int14.h"
-#include "int13.h"
 #include "disk.h"
+#include "int13.h"
+#include "int14.h"
 
 #ifndef XMODEM_H
 #define XMODEM_H
 
-typedef enum _state {START, BLOCK, CHECK, REBLOCK, END} ProtocolState;
+typedef enum _state { START,
+    BLOCK,
+    CHECK,
+    REBLOCK,
+    END } ProtocolState;
 
 /*
 length | description
@@ -26,12 +30,12 @@ length | description
      2 | CRC
 */
 typedef struct {
-  unsigned char soh_byte;
-  unsigned char block;
-  unsigned char block_checksum;
-  char data[512];
-  unsigned char crc_hi;
-  unsigned char crc_lo;
+    unsigned char soh_byte;
+    unsigned char block;
+    unsigned char block_checksum;
+    char data[512];
+    unsigned char crc_hi;
+    unsigned char crc_lo;
 } Packet;
 
 /**
