@@ -14,7 +14,7 @@
 /**
  * Initialize port
  */
-unsigned char int14_init(unsigned long baud_rate);
+unsigned char int14_init(unsigned long baud_rate, unsigned char* is_fossil);
 
 /**
  * Send byte
@@ -36,5 +36,7 @@ unsigned short int14_data_waiting(void);
  * Read byte
  */
 unsigned char int14_read_byte(void);
+
+size_t int14_write_block(char* buf, size_t buf_size);
 
 #endif /* INT14_H */

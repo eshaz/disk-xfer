@@ -26,6 +26,9 @@ unsigned char response=0;
 Packet* packet;
 Disk* disk;
 
+unsigned char is_fossil=0;
+size_t data_written = 0;
+
 /**
  * 1   SOH
  * 1   Block #
@@ -124,7 +127,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     return;
   }
 
-  if (int14_init(baud_rate)) {
+  if (int14_init(baud_rate, &is_fossil)) {
     fprintf(stderr, "\nFATAL: Failed to initialize serial port.");
     clean_up();
     return;
@@ -245,8 +248,15 @@ void xmodem_state_block(void)
   packet->crc_hi = calced_crc>>8;
   packet->crc_lo = calced_crc&0xFF;
 
-  for (i=0; i < sizeof(Packet); i++) {
-    int14_send_byte(packet_ptr[i]);
+  if (is_fossil) {
+    data_written = 0;
+    while(data_written < sizeof(Packet)) {
+      data_written += int14_write_block(packet_ptr + data_written, sizeof(Packet) - data_written);
+    }
+  } else {
+    for (i=0; i < sizeof(Packet); i++) {
+      int14_send_byte(packet_ptr[i]);
+    }
   }
 
   // discard anything received while this block was being sent

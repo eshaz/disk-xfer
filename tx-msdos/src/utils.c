@@ -151,6 +151,7 @@ void print_read_logs_status(Disk* disk) {
   print_read_logs(disk);
   fprintf(stderr, "\n");
   print_separator();
+  fprintf(stderr, "\n");
 }
 
 static void print_help() {
