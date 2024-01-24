@@ -15,6 +15,10 @@
 #ifndef XMODEM_H
 #define XMODEM_H
 
+#define SOH 0x01
+#define ACK 0x06
+#define NAK 0x15
+
 typedef enum _state { START,
     BLOCK,
     CHECK,
@@ -36,7 +40,12 @@ typedef struct {
     char data[512];
     unsigned char crc_hi;
     unsigned char crc_lo;
-} Packet;
+} SendPacket;
+
+typedef struct {
+    unsigned char response_code;
+    unsigned long block_num;
+} ReceivePacket;
 
 /**
  * XMODEM-512 send file - main entrypoint.

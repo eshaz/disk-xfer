@@ -39,6 +39,8 @@ unsigned short int14_data_waiting(void);
  */
 unsigned char int14_read_byte(void);
 
-size_t int14_write_block(char* buf, size_t buf_size);
+unsigned short int14_write_block(char* buf, unsigned short buf_size);
+
+unsigned short int14_read_block(char* buf, unsigned short buf_size);
 
 #endif /* INT14_H */

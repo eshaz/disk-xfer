@@ -142,6 +142,25 @@ unsigned char int14_read_byte(void)
 }
 
 /**
+ * INT 14 - FOSSIL - READ BLOCK
+        AH = 18h
+        CX = maximum number of characters to transfer
+        DX = port number
+        ES:DI -> user buffer
+  Return: AX = number of characters transferred
+*/
+unsigned short int14_read_block(char* buf, unsigned short buf_size)
+{
+    regs.h.ah = 0x18;
+    regs.x.cx = buf_size;
+    regs.x.dx = 0;
+    regs.w.di = (short)buf;
+    int86(0x14, &regs, &regs);
+
+    return regs.w.ax;
+}
+
+/**
  * INT 14 - FOSSIL - WRITE BLOCK
         AH = 19h
         CX = maximum number of characters to transfer
@@ -149,7 +168,7 @@ unsigned char int14_read_byte(void)
         ES:DI -> user buffer
   Return: AX = number of characters transferred
 */
-size_t int14_write_block(char* buf, size_t buf_size)
+unsigned short int14_write_block(char* buf, unsigned short buf_size)
 {
     regs.h.ah = 0x19;
     regs.x.cx = buf_size;
@@ -157,5 +176,5 @@ size_t int14_write_block(char* buf, size_t buf_size)
     regs.w.di = (short)buf;
     int86(0x14, &regs, &regs);
 
-    return (size_t)regs.w.ax;
+    return regs.w.ax;
 }

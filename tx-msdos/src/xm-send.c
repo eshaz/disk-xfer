@@ -19,15 +19,19 @@
 #define MAX_READ_RETRY_COUNT 32 // number of times to retry when a read error is encountered (up to 255)
 #define READ_RETRY_DELAY_MS 100 // delay introduced when retrying to read
 #define DISK_RESET_INTERVAL 1 // interval to reset the disk heads when an error occurs
+#define MAX_BUFFERED_BLOCKS 4 // number of blocks permitted to be buffered (Linux terminal interfaces allows up to 4096 bytes)
 
 ProtocolState state = START;
 
-unsigned char response = 0;
-Packet* packet;
+SendPacket* tx_packet;
+ReceivePacket* rx_packet;
 Disk* disk;
 
+unsigned char* rx_buffer;
+const char rx_buffer_size = 6;
+unsigned char rx_buffer_pos;
+
 unsigned char is_fossil = 0;
-size_t data_written = 0;
 
 /**
  * 1   SOH
@@ -61,7 +65,7 @@ static void update_read_status(unsigned char retry_count)
             disk->read_log_tail->sector != disk->current_sector // error sector is different
         ) {
             // new error, add to the read log
-            fprintf(stderr, "\nRead Error: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
+            fprintf(stderr, ".Error: 0x%02X, %s.", disk->status_code, disk->status_msg);
             add_read_log(disk, retry_count);
         } else {
             // same error, update the retry count
@@ -69,7 +73,7 @@ static void update_read_status(unsigned char retry_count)
         }
     } else if (retry_count > 0) {
         // there is a success, but only after retrying
-        fprintf(stderr, "\nError Recovered: 0x%02X, %s.\n", disk->status_code, disk->status_msg);
+        fprintf(stderr, ".Recovered: 0x%02X, %s.", disk->status_code, disk->status_msg);
         add_read_log(disk, retry_count);
     } else {
         // there is a success, and no retries, don't log
@@ -101,7 +105,8 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
 void clean_up()
 {
     free_disk(disk);
-    free(packet);
+    free(tx_packet);
+    free(rx_buffer);
 }
 
 /**
@@ -110,9 +115,15 @@ void clean_up()
 void xmodem_send(unsigned long start, unsigned long baud_rate)
 {
     start_sector = start;
-    packet = malloc(sizeof(Packet));
-    packet->soh_byte = 1;
-    packet->block = 1;
+    // data to send
+    tx_packet = malloc(sizeof(SendPacket));
+    tx_packet->soh_byte = SOH;
+    // data to receieve
+    rx_packet = malloc(sizeof(ReceivePacket));
+    // buffer for recieve data
+    rx_buffer = malloc(rx_buffer_size);
+    rx_buffer_pos = 0;
+    rx_packet->block_num = 0;
 
     disk = create_disk();
 
@@ -146,7 +157,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     while (1) {
         catch_interrupt();
         // update time every once in a while to avoid midnight rollover issues
-        if (packet->block == 0)
+        if (tx_packet->block == 0)
             update_time_elapsed(disk, start_sector);
         switch (state) {
         case START:
@@ -165,6 +176,74 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
             return;
         }
     }
+}
+
+static char validate_receive_packet()
+{
+    unsigned char sum = 0;
+    unsigned char i = 0;
+    unsigned long new_sector;
+    unsigned long max_sector;
+
+    if (!(rx_buffer[0] == ACK || rx_buffer[0] == NAK)) {
+        return 1;
+    }
+
+    // validate checksum
+    for (; i < rx_buffer_size; i++)
+        sum += (unsigned char)rx_buffer[i];
+
+    if (sum != 0xff) {
+        return 1;
+    }
+
+    new_sector = (unsigned long)(rx_buffer[1] << 24) | (rx_buffer[2] << 16) | (rx_buffer[3] << 8) | rx_buffer[4];
+    max_sector = (unsigned long)disk->total_sectors - start_sector;
+
+    // validate block number
+    if (new_sector > max_sector) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static unsigned char get_receive_packet()
+{
+    unsigned char i;
+    unsigned char bytes_read = 0;
+
+    // fill the current buffer
+    while (rx_buffer_pos < rx_buffer_size) {
+        bytes_read = int14_read_block(rx_buffer + rx_buffer_pos, rx_buffer_size - rx_buffer_pos);
+        if (bytes_read == 0)
+            return 0;
+
+        rx_buffer_pos += bytes_read;
+    }
+
+    // shift the buffer left and read another byte to resync while response is invalid
+    while (validate_receive_packet()) {
+        // shift buffer left
+        for (i = 1; i < rx_buffer_size; i++)
+            rx_buffer[i - 1] = rx_buffer[i];
+
+        rx_buffer_pos = rx_buffer_size - 1;
+
+        bytes_read = int14_read_block(rx_buffer + rx_buffer_size - 1, 1);
+
+        if (bytes_read == 0)
+            return 0;
+        rx_buffer_pos++;
+    }
+
+    // found valid packet, save it
+    rx_packet->response_code = rx_buffer[0];
+    rx_packet->block_num = (unsigned long)(rx_buffer[1] << 24) | (rx_buffer[2] << 16) | (rx_buffer[3] << 8) | rx_buffer[4];
+
+    // remove this packet from the buffer
+    rx_buffer_pos = 0;
+    return 1;
 }
 
 /**
@@ -203,63 +282,77 @@ void xmodem_state_start()
  */
 void xmodem_state_block(void)
 {
-    char* packet_ptr = (unsigned char*)packet;
-    char* buf = &(packet->data);
+    unsigned char* packet_ptr = (unsigned char*)tx_packet;
+    unsigned char* buf = &(tx_packet->data);
 
     short i = 0;
     unsigned short calced_crc;
+    unsigned char read_error;
+    unsigned long data_written;
     unsigned char retry_count = 0;
-    unsigned char read_error = int13_read_sector(disk, buf);
+    ReadLog* rl;
 
-    // retry through errors
-    // it's normal to have known bad sectors on older disks
-    // attempt to read and send something if it was written to the buffer
-    while (
-        response != 0x15 && // don't do retries after a NAK response since the block was already retried
-        read_error && retry_count < MAX_READ_RETRY_COUNT) {
-        if (catch_interrupt())
-            return;
+    // try to read the data
+    read_error = int13_read_sector(disk, buf);
 
-        update_read_status(retry_count);
-        fprintf(stderr, "R\b");
-
-        if (!(retry_count % DISK_RESET_INTERVAL)) {
-            int13_reset_disk_system(disk);
-        }
-
-        delay(READ_RETRY_DELAY_MS);
-        read_error = int13_read_sector(disk, buf);
-        retry_count++;
-    }
-
+    // retry on error
     if (read_error) {
-        // retries failed
-        fprintf(stderr, "E");
-    } else {
-        update_read_status(retry_count);
-        fprintf(stderr, "S\b");
+        rl = get_read_log_for_current_sector(disk);
+        if (rl) {
+            fprintf(stderr, ".not retrying %lu since it was already tried...\n", rl->sector);
+        }
+        // don't do retry logic if this sector was already tried, just resend it
+        if (!(rx_packet->response_code == NAK && rl != NULL)) {
+            // retry through errors
+            while (read_error && retry_count < MAX_READ_RETRY_COUNT) {
+                if (catch_interrupt())
+                    return;
+        
+                update_read_status(retry_count);
+                fprintf(stderr, "R\b");
+                // reset the disk periodically to reposition the drive heads for a successful read
+                if (!(retry_count % DISK_RESET_INTERVAL)) {
+                    int13_reset_disk_system(disk);
+                }
+        
+                delay(READ_RETRY_DELAY_MS);
+                read_error = int13_read_sector(disk, buf);
+                retry_count++;
+            }
+        
+            if (read_error) {
+                // retries failed
+                fprintf(stderr, "E");
+            } else {
+                update_read_status(retry_count);
+                fprintf(stderr, "S\b");
+            }
+
+            // clear out any NAKs received during retries
+            while (int14_data_waiting())
+                get_receive_packet();
+        }
     }
-
+    
     calced_crc = xmodem_calc_crc(buf, sector_size);
-
-    packet->block_checksum = 0xFF - packet->block;
-    packet->crc_hi = calced_crc >> 8;
-    packet->crc_lo = calced_crc & 0xFF;
+    tx_packet->block = (disk->current_sector - start_sector) & 0xff;
+    tx_packet->block_checksum = (unsigned char)0xFF - tx_packet->block;
+    tx_packet->crc_hi = calced_crc >> 8;
+    tx_packet->crc_lo = calced_crc & 0xFF;
 
     if (is_fossil) {
         data_written = 0;
-        while (data_written < sizeof(Packet)) {
-            data_written += int14_write_block(packet_ptr + data_written, sizeof(Packet) - data_written);
+        while (data_written < sizeof(SendPacket)) {
+            data_written += int14_write_block((char*)packet_ptr + data_written, sizeof(SendPacket) - data_written);
         }
     } else {
-        for (i = 0; i < sizeof(Packet); i++) {
+        for (i = 0; i < sizeof(SendPacket); i++) {
             int14_send_byte(packet_ptr[i]);
         }
     }
 
-    // discard anything received while this block was being sent
-    while (int14_data_waiting()) {
-        int14_read_byte();
+    if (disk->current_sector < disk->total_sectors) {
+        set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
     }
 
     state = CHECK;
@@ -270,35 +363,29 @@ void xmodem_state_block(void)
  */
 void xmodem_state_check(void)
 {
-    if (int14_data_waiting() != 0) {
-        response = int14_read_byte();
-
-        switch (response) {
-        case 0x00:
-            break; // no response
-        case 0x06: // ACK
+    unsigned long new_sector;
+    if (get_receive_packet()) {
+        switch (rx_packet->response_code) {
+        case ACK:
             fprintf(stderr, "A");
             if (disk->current_sector >= disk->total_sectors) {
                 state = END;
                 fprintf(stderr, "\nTransfer complete!");
-            } else {
-                state = BLOCK;
-                packet->block++;
-                packet->block &= 0xff;
-                set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
+                update_time_elapsed(disk, start_sector);
+                print_status(disk);
             }
             break;
-        case 0x15: // NAK
+        case NAK:
+            new_sector = (unsigned long)start_sector + rx_packet->block_num;
+            set_sector(disk, new_sector); // reset to the nak'd block
             fprintf(stderr, "N");
-            delay(50); // wait for receiver to flush buffer
             state = BLOCK; // Resend.
             break;
-        case 0x18: // CAN
-            fprintf(stderr, "C");
-            state = END; // end.
-            break;
         default:
-            fprintf(stderr, "Unknown Byte: 0x%02X: %c", response, response);
+            fprintf(stderr, "Unknown Byte: 0x%02X: %c", rx_packet->response_code, rx_packet->response_code);
         }
+    } else if ((signed long)disk->current_sector - start_sector - rx_packet->block_num <= MAX_BUFFERED_BLOCKS) {
+        // send more data
+        state = BLOCK;
     }
 }

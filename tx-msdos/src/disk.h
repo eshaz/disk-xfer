@@ -47,4 +47,6 @@ void update_read_log(Disk* disk, unsigned char retry_count);
 
 void print_read_logs();
 
+ReadLog* get_read_log_for_current_sector(Disk* disk);
+
 #endif /* DISK_H */
