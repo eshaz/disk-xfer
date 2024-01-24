@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
+#include <errno.h>
 
 typedef enum _state { START,
     BLOCK,
@@ -21,7 +22,8 @@ typedef enum _state { START,
     REBLOCK,
     END } ProtocolState;
 
-#define BUFFER_SIZE 1024 * 16 // max size of tio buffer
+#define RX_BUFFER_SIZE 1024 * 16 // max size of tio buffer
+#define TX_BUFFER_SIZE 7 // size of the response packet
 #define TIMEOUT_S 1 // time in 10ths of seconds to wait for data, then timeout with NAK 255 max
 #define BAUD_RATE B115200 // connection baud rate
 #define BLOCK_SIZE 517 // 512 + 5 XMODEM-CRC block overhead.
@@ -35,6 +37,7 @@ unsigned long block_num = 0;
 
 unsigned char* rx_buffer;
 unsigned int rx_buffer_pos;
+unsigned char* tx_buffer;
 struct winsize w;
 unsigned int current_col = 0;
 
@@ -70,32 +73,31 @@ void xmodem_send_byte(unsigned char b)
 
 static void send_block(unsigned char response)
 {
-    unsigned char bytes[6];
+    unsigned short crc;
     char i;
     // ACK or NAK
-    bytes[0] = response;
+    tx_buffer[0] = response;
     // current block number incrementing from first block recieved
-    bytes[1] = (block_num >> 24) & 0xff;
-    bytes[2] = (block_num >> 16) & 0xff;
-    bytes[3] = (block_num >> 8) & 0xff;
-    bytes[4] = block_num & 0xff;
-    // checksum
-    bytes[5] = 0;
-    for (i = 0; i < 5; i++) {
-        bytes[5] += bytes[i];
-    }
-    bytes[5] = 0xFF - bytes[5];
+    tx_buffer[1] = ((unsigned long)block_num >> 24) & 0xff;
+    tx_buffer[2] = ((unsigned long)block_num >> 16) & 0xff;
+    tx_buffer[3] = ((unsigned long)block_num >> 8) & 0xff;
+    tx_buffer[4] = block_num & 0xff;
+    // crc
+    crc = xmodem_calc_crc(tx_buffer, 5);
+    tx_buffer[5] = crc >> 8;
+    tx_buffer[6] = crc & 0xff;
 
-    write(serial_write_fd, &bytes, 6);
+    write(serial_write_fd, tx_buffer, 7);
 }
 
-static void print_block_status(char* status) {
+static void print_block_status(char* status)
+{
     fprintf(stderr, status);
     current_col++;
     if (current_col > w.ws_col) {
         fprintf(stderr, "\n");
         current_col = 0;
-    } 
+    }
 }
 
 static void send_nak()
@@ -108,6 +110,14 @@ static void send_ack()
 {
     send_block(0x06); // ACK
     print_block_status("A");
+}
+
+static void cleanup() {
+    free(rx_buffer);
+    free(tx_buffer);
+    close(outfile_fd);
+    close(serial_read_fd);
+    close(serial_write_fd);
 }
 
 /**
@@ -130,8 +140,8 @@ void xmodem_state_block(void)
     int bytes_read = 0;
     int data_to_pull = 0;
 
-    while (i < BLOCK_SIZE && rx_buffer_pos < BUFFER_SIZE) {
-        bytes_read = read(serial_read_fd, rx_buffer + rx_buffer_pos, BUFFER_SIZE - rx_buffer_pos);
+    while (i < BLOCK_SIZE && rx_buffer_pos < RX_BUFFER_SIZE) {
+        bytes_read = read(serial_read_fd, rx_buffer + rx_buffer_pos, RX_BUFFER_SIZE - rx_buffer_pos);
         if (bytes_read == 0)
             send_nak();
 
@@ -141,7 +151,7 @@ void xmodem_state_block(void)
 
     fprintf(stderr, "R\b");
 
-    if (rx_buffer_pos == BUFFER_SIZE) {
+    if (rx_buffer_pos == RX_BUFFER_SIZE) {
         fprintf(stderr, "Buffer full!\n");
     }
 
@@ -168,14 +178,28 @@ unsigned char xmodem_check_crc(unsigned char* buf)
     }
 }
 
+static void handle_error(char* message) {
+        fprintf(stderr, "%s %i %s\n", message, errno, strerror(errno));
+        cleanup();
+        exit(1);
+}
+
 /**
  * Block is ok, write it to disk.
  */
 void xmodem_write_block_to_disk(char* buf)
 {
     char* data_ptr = &buf[3];
+    int bytes_written = 0;
 
-    write(outfile_fd, data_ptr, 512);
+    bytes_written = write(outfile_fd, data_ptr, 512);
+
+    if (bytes_written < 0) {
+        handle_error("Write error! ");
+    }
+    if (bytes_written != 512) {
+        handle_error("All data was not written! ");
+    }
 }
 
 /**
@@ -232,11 +256,18 @@ void xmodem_state_check(void)
  */
 int xmodem_receive(char* filename)
 {
+    unlink(filename);
+
     outfile_fd = open(
         filename,
-        O_CREAT | O_TRUNC | O_WRONLY |
-        S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
-    rx_buffer = malloc(BUFFER_SIZE);
+        O_CREAT | O_TRUNC | O_WRONLY | S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    if (outfile_fd < 1) {
+        handle_error("Failed to open file! ");
+    }
+
+    rx_buffer = malloc(RX_BUFFER_SIZE);
+    tx_buffer = malloc(TX_BUFFER_SIZE);
+
 
     while (state != END) {
         switch (state) {
@@ -257,10 +288,7 @@ int xmodem_receive(char* filename)
     }
 
     // We're done.
-    free(rx_buffer);
-    close(outfile_fd);
-    close(serial_read_fd);
-    close(serial_write_fd);
+    cleanup();
     return 0;
 }
 

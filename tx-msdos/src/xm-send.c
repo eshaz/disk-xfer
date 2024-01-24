@@ -28,9 +28,8 @@ ReceivePacket* rx_packet;
 Disk* disk;
 
 unsigned char* rx_buffer;
-const char rx_buffer_size = 6;
+const char rx_buffer_size = 7;
 unsigned char rx_buffer_pos;
-
 unsigned char is_fossil = 0;
 
 /**
@@ -180,32 +179,21 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
 
 static char validate_receive_packet()
 {
-    unsigned char sum = 0;
     unsigned char i = 0;
-    unsigned long new_sector;
-    unsigned long max_sector;
+    unsigned short crc1;
+    unsigned short crc2;
 
-    if (!(rx_buffer[0] == ACK || rx_buffer[0] == NAK)) {
-        return 1;
+    if (rx_buffer[0] == ACK || rx_buffer[0] == NAK) {
+        crc2 = xmodem_calc_crc(rx_buffer, 5);
+        crc1 = rx_buffer[5] << 8;
+        crc1|= rx_buffer[6];
+
+        if (crc1 == crc2) {
+            return 0;
+        }
     }
 
-    // validate checksum
-    for (; i < rx_buffer_size; i++)
-        sum += (unsigned char)rx_buffer[i];
-
-    if (sum != 0xff) {
-        return 1;
-    }
-
-    new_sector = (unsigned long)(rx_buffer[1] << 24) | (rx_buffer[2] << 16) | (rx_buffer[3] << 8) | rx_buffer[4];
-    max_sector = (unsigned long)disk->total_sectors - start_sector;
-
-    // validate block number
-    if (new_sector > max_sector) {
-        return 1;
-    }
-
-    return 0;
+    return 1;
 }
 
 static unsigned char get_receive_packet()
@@ -239,8 +227,12 @@ static unsigned char get_receive_packet()
 
     // found valid packet, save it
     rx_packet->response_code = rx_buffer[0];
-    rx_packet->block_num = (unsigned long)(rx_buffer[1] << 24) | (rx_buffer[2] << 16) | (rx_buffer[3] << 8) | rx_buffer[4];
-
+    rx_packet->block_num = 0;
+    rx_packet->block_num |= (unsigned long)rx_buffer[1] << 24;
+    rx_packet->block_num |= (unsigned long)rx_buffer[2] << 16;
+    rx_packet->block_num |= (unsigned int)rx_buffer[3] << 8;
+    rx_packet->block_num |= rx_buffer[4];
+    
     // remove this packet from the buffer
     rx_buffer_pos = 0;
     return 1;
@@ -298,9 +290,6 @@ void xmodem_state_block(void)
     // retry on error
     if (read_error) {
         rl = get_read_log_for_current_sector(disk);
-        if (rl) {
-            fprintf(stderr, ".not retrying %lu since it was already tried...\n", rl->sector);
-        }
         // don't do retry logic if this sector was already tried, just resend it
         if (!(rx_packet->response_code == NAK && rl != NULL)) {
             // retry through errors
