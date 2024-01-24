@@ -5,14 +5,15 @@
 
 /**
  * Readlog (for logging bad sectors or other read errors)
-*/
+ */
 static ReadLog* iterate_read_logs(Disk* disk, unsigned char (*operation)(Disk* disk, ReadLog* rl))
 {
     ReadLog* rl = disk->read_log_tail;
     if (rl) { // if the log isn't empty
         do {
             rl = rl->next;
-            if (operation(disk, rl)) return rl; // return this read log entry if operation returns 1
+            if (operation(disk, rl))
+                return rl; // return this read log entry if operation returns 1
         } while (rl != disk->read_log_tail); // iterate until reaching the tail again
     }
     return rl;
@@ -24,13 +25,16 @@ static char print_read_log(Disk* disk, ReadLog* rl)
     return 0;
 }
 
-static char free_read_log(Disk* disk, ReadLog* rl) {
+static char free_read_log(Disk* disk, ReadLog* rl)
+{
     free(rl);
     return 0;
 }
 
-static char is_current_sector_in_read_log(Disk* disk, ReadLog* rl) {
-    if (rl->sector == disk->current_sector) return 1;
+static char is_current_sector_in_read_log(Disk* disk, ReadLog* rl)
+{
+    if (rl->sector == disk->current_sector)
+        return 1;
     return 0;
 }
 
@@ -70,13 +74,14 @@ void print_read_logs(Disk* disk)
 ReadLog* get_read_log_for_current_sector(Disk* disk)
 {
     ReadLog* rl = iterate_read_logs(disk, &is_current_sector_in_read_log);
-    if(rl && rl->sector == disk->current_sector) return rl;
-    return (ReadLog*) NULL; // null pointer if not found
+    if (rl && rl->sector == disk->current_sector)
+        return rl;
+    return (ReadLog*)NULL; // null pointer if not found
 }
 
 /**
  * Disk data structure
-*/
+ */
 
 Disk* create_disk()
 {

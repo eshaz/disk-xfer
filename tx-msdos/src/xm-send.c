@@ -307,19 +307,19 @@ void xmodem_state_block(void)
             while (read_error && retry_count < MAX_READ_RETRY_COUNT) {
                 if (catch_interrupt())
                     return;
-        
+
                 update_read_status(retry_count);
                 fprintf(stderr, "R\b");
                 // reset the disk periodically to reposition the drive heads for a successful read
                 if (!(retry_count % DISK_RESET_INTERVAL)) {
                     int13_reset_disk_system(disk);
                 }
-        
+
                 delay(READ_RETRY_DELAY_MS);
                 read_error = int13_read_sector(disk, buf);
                 retry_count++;
             }
-        
+
             if (read_error) {
                 // retries failed
                 fprintf(stderr, "E");
@@ -333,7 +333,7 @@ void xmodem_state_block(void)
                 get_receive_packet();
         }
     }
-    
+
     calced_crc = xmodem_calc_crc(buf, sector_size);
     tx_packet->block = (disk->current_sector - start_sector) & 0xff;
     tx_packet->block_checksum = (unsigned char)0xFF - tx_packet->block;
@@ -387,5 +387,7 @@ void xmodem_state_check(void)
     } else if ((signed long)disk->current_sector - start_sector - rx_packet->block_num <= MAX_BUFFERED_BLOCKS) {
         // send more data
         state = BLOCK;
+    } else {
+        // buffering
     }
 }

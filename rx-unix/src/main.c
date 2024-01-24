@@ -6,46 +6,58 @@
  * Released under GPL version 3.0
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
 #include <fcntl.h>
-#include <termios.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h> // needed for memset
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <termios.h>
+#include <unistd.h>
 
-typedef enum _state {START, BLOCK, CHECK, REBLOCK, END} ProtocolState;
+typedef enum _state { START,
+    BLOCK,
+    CHECK,
+    REBLOCK,
+    END } ProtocolState;
 
-#define BUFFER_SIZE 517 // 512 + 5 XMODEM-CRC block overhead.
+#define BUFFER_SIZE 1024 * 16 // max size of tio buffer
+#define TIMEOUT_S 1 // time in 10ths of seconds to wait for data, then timeout with NAK 255 max
+#define BAUD_RATE B115200 // connection baud rate
+#define BLOCK_SIZE 517 // 512 + 5 XMODEM-CRC block overhead.
 
-ProtocolState state=START;
-int serial_fd;
+ProtocolState state = START;
+int serial_read_fd;
+int serial_write_fd;
 int outfile_fd;
 unsigned char b;
-long block_num=1;
+unsigned long block_num = 0;
 
-unsigned char* buf;
+unsigned char* rx_buffer;
+unsigned int rx_buffer_pos;
+struct winsize w;
+unsigned int current_col = 0;
 
 /**
  * Calculate 16-bit CRC
  */
 unsigned short xmodem_calc_crc(char* ptr, short count)
 {
-  unsigned short crc;
-  char i;
+    unsigned short crc;
+    char i;
 
-  crc=0;
-  while (--count >= 0)
-    {
-      crc = crc ^ (unsigned short) *ptr++ << 8;
-      i=8;
-      do {
-        if (crc & 0x8000)
-          crc = crc << 1 ^ 0x1021;
-        else
-          crc = crc << 1;
-      } while (--i);
+    crc = 0;
+    while (--count >= 0) {
+        crc = crc ^ (unsigned short)*ptr++ << 8;
+        i = 8;
+        do {
+            if (crc & 0x8000)
+                crc = crc << 1 ^ 0x1021;
+            else
+                crc = crc << 1;
+        } while (--i);
     }
-  return crc;
+    return crc;
 }
 
 /**
@@ -53,7 +65,49 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
  */
 void xmodem_send_byte(unsigned char b)
 {
-  write(serial_fd,&b,1);
+    write(serial_write_fd, &b, 1);
+}
+
+static void send_block(unsigned char response)
+{
+    unsigned char bytes[6];
+    char i;
+    // ACK or NAK
+    bytes[0] = response;
+    // current block number incrementing from first block recieved
+    bytes[1] = (block_num >> 24) & 0xff;
+    bytes[2] = (block_num >> 16) & 0xff;
+    bytes[3] = (block_num >> 8) & 0xff;
+    bytes[4] = block_num & 0xff;
+    // checksum
+    bytes[5] = 0;
+    for (i = 0; i < 5; i++) {
+        bytes[5] += bytes[i];
+    }
+    bytes[5] = 0xFF - bytes[5];
+
+    write(serial_write_fd, &bytes, 6);
+}
+
+static void print_block_status(char* status) {
+    fprintf(stderr, status);
+    current_col++;
+    if (current_col > w.ws_col) {
+        fprintf(stderr, "\n");
+        current_col = 0;
+    } 
+}
+
+static void send_nak()
+{
+    send_block(0x15); // NAK
+    print_block_status("N");
+}
+
+static void send_ack()
+{
+    send_block(0x06); // ACK
+    print_block_status("A");
 }
 
 /**
@@ -61,10 +115,10 @@ void xmodem_send_byte(unsigned char b)
  */
 void xmodem_state_start(void)
 {
-  printf("Sending Ready to Start.");
-  b='C'; // Xmodem CRC start byte.
-  write(serial_fd,&b,1); // Write to serial port.
-  state=BLOCK; // Ready to start feeding blocks.
+    printf("Sending Ready to Start.\n");
+    b = 'C'; // Xmodem CRC start byte.
+    write(serial_write_fd, &b, 1); // Write to serial port.
+    state = BLOCK; // Ready to start feeding blocks.
 }
 
 /**
@@ -72,42 +126,56 @@ void xmodem_state_start(void)
  */
 void xmodem_state_block(void)
 {
-  int i=0;
-  printf("Receiving next block # %d...",block_num);
-  for (i=0;i<BUFFER_SIZE;i++)
-    {
-      read(serial_fd,&buf[i],1);
+    int i = 0;
+    int bytes_read = 0;
+    int data_to_pull = 0;
+
+    while (i < BLOCK_SIZE && rx_buffer_pos < BUFFER_SIZE) {
+        bytes_read = read(serial_read_fd, rx_buffer + rx_buffer_pos, BUFFER_SIZE - rx_buffer_pos);
+        if (bytes_read == 0)
+            send_nak();
+
+        rx_buffer_pos += bytes_read;
+        i += bytes_read;
     }
-  state=CHECK;
+
+    fprintf(stderr, "R\b");
+
+    if (rx_buffer_pos == BUFFER_SIZE) {
+        fprintf(stderr, "Buffer full!\n");
+    }
+
+    state = CHECK;
 }
 
 /**
  * xmodem check crc - given buffer, calculate CRC, and compare against
  * stored value in block.
  */
-unsigned char xmodem_check_crc(void)
+unsigned char xmodem_check_crc(unsigned char* buf)
 {
-  char* data_ptr=&buf[3];
-  unsigned short crc1;
-  unsigned short crc2=xmodem_calc_crc(data_ptr,512);
+    unsigned char* data_ptr = &buf[3];
+    unsigned short crc1;
+    unsigned short crc2 = xmodem_calc_crc(data_ptr, 512);
 
-  crc1=buf[515]<<8;
-  crc1|=buf[516];
-  
-  if (crc1==crc2)
-    return 1;
-  else
-    return 0;
+    crc1 = buf[515] << 8;
+    crc1 |= buf[516];
+
+    if (crc1 == crc2)
+        return 1;
+    else {
+        return 0;
+    }
 }
 
 /**
  * Block is ok, write it to disk.
  */
-void xmodem_write_block_to_disk(void)
+void xmodem_write_block_to_disk(char* buf)
 {
-  char* data_ptr=&buf[3];
+    char* data_ptr = &buf[3];
 
-  write(outfile_fd,data_ptr,512);
+    write(outfile_fd, data_ptr, 512);
 }
 
 /**
@@ -116,37 +184,47 @@ void xmodem_write_block_to_disk(void)
  */
 void xmodem_state_check(void)
 {
-  unsigned char block_checksum=buf[1]+buf[2];
-  if (buf[0]!=0x01) // Check for SOH
-    {
-      printf("Bad SOH!\n");
-      xmodem_send_byte(0x15); // Send NAK
-      state=BLOCK;
-      return;
-    }
-  else if (block_checksum!=0xFF) // Check the checksum
-    {
-      printf("Bad Block Checksum! %u + %u = %u\n",buf[1],buf[2],buf[1]+buf[2]);
-      xmodem_send_byte(0x15); // Send NAK
-      state=BLOCK;
-      return;
-    }
-  else if (xmodem_check_crc()==0) // Check the CRC.
-    {
-      printf("Bad CRC!\n");
-      xmodem_send_byte(0x15); // Send NAK
-      state=BLOCK;
-      return;
+    int i;
+    int offset = 0;
+    unsigned char* buf;
+    unsigned char block_num_byte;
+
+    // align buffer
+    while (offset < rx_buffer_pos - BLOCK_SIZE) {
+        buf = rx_buffer + offset;
+        block_num_byte = block_num & 0xff;
+
+        // search for valid packets
+        if (
+            buf[0] == 0x01 && // SOH
+            buf[1] == block_num_byte && // block sequence
+            buf[1] + buf[2] == 0xFF // checksum
+        ) {
+            if (xmodem_check_crc(buf)) {
+                send_ack();
+                block_num++;
+                xmodem_write_block_to_disk(buf);
+
+                offset += BLOCK_SIZE;
+            } else {
+                send_nak();
+                // increment to prevent resyncing on this block
+                offset++;
+                break;
+            }
+        } else {
+            // keep searching
+            offset++;
+        }
     }
 
-  // If we get here, block is reasonably ok, write out data payload.
-  // And send an ACK.
-  xmodem_write_block_to_disk();
-    
-  xmodem_send_byte(0x06);
-  printf("ACK!\n");
-  block_num++;
-  state=BLOCK;
+    // shift away the read data
+    for (i = 0; i < rx_buffer_pos; i++) {
+        rx_buffer[i] = rx_buffer[i + offset];
+    }
+    rx_buffer_pos -= offset;
+
+    state = BLOCK;
 }
 
 /**
@@ -154,36 +232,36 @@ void xmodem_state_check(void)
  */
 int xmodem_receive(char* filename)
 {
-  outfile_fd=open(
-      filename,
-      O_CREAT|O_TRUNC|O_WRONLY,
-      S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
-  buf=malloc(BUFFER_SIZE);
+    outfile_fd = open(
+        filename,
+        O_CREAT | O_TRUNC | O_WRONLY |
+        S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+    rx_buffer = malloc(BUFFER_SIZE);
 
-  while (state!=END)
-    {
-      switch(state)
-        {
+    while (state != END) {
+        switch (state) {
         case START:
-          xmodem_state_start();
-          break;
+            xmodem_state_start();
+            break;
         case BLOCK:
-          xmodem_state_block();
-          break;
+            xmodem_state_block();
+            break;
         case CHECK:
-          xmodem_state_check();
-          break;
+            xmodem_state_check();
+            break;
         case REBLOCK:
-          break;
+            break;
         case END:
-          break;
+            break;
         }
     }
 
-  // We're done.
-  free(buf);
-  close(outfile_fd);
-  return 0;
+    // We're done.
+    free(rx_buffer);
+    close(outfile_fd);
+    close(serial_read_fd);
+    close(serial_write_fd);
+    return 0;
 }
 
 /**
@@ -191,22 +269,24 @@ int xmodem_receive(char* filename)
  */
 int termio_init(char* serial_filename)
 {
-  struct termios tio;
+    struct termios tio;
+    memset(&tio, 0, sizeof(tio));
+    tio.c_iflag = 0;
+    tio.c_oflag = 0;
+    tio.c_cflag = CS8 | CREAD | CLOCAL;
+    tio.c_lflag &= ~ICANON;
+    tio.c_lflag &= ~ISIG;
+    tio.c_cc[VMIN] = 0;
+    tio.c_cc[VTIME] = TIMEOUT_S;
 
-  memset(&tio,0,sizeof(tio));
-  tio.c_iflag=0;
-  tio.c_oflag=0;
-  tio.c_cflag=CS8|CREAD|CLOCAL;
-  tio.c_lflag=0;
-  tio.c_cc[VMIN]=1;
-  tio.c_cc[VTIME]=5;
-  
-  serial_fd=open(serial_filename, O_RDWR);
-  cfsetospeed(&tio,B19200);
-  cfsetispeed(&tio,B19200);
-  
-  tcsetattr(serial_fd,TCSANOW,&tio);
-  printf("Serial port initialized.");
+    serial_read_fd = open(serial_filename, O_RDONLY);
+    serial_write_fd = open(serial_filename, O_WRONLY);
+    cfsetospeed(&tio, BAUD_RATE);
+    cfsetispeed(&tio, BAUD_RATE);
+
+    tcsetattr(serial_read_fd, TCSANOW, &tio);
+    tcsetattr(serial_write_fd, TCSANOW, &tio);
+    return 0;
 }
 
 /**
@@ -214,20 +294,18 @@ int termio_init(char* serial_filename)
  */
 void print_args(void)
 {
-  printf("rx /dev/ttySx destination_image_name.img\n");
+    printf("rx /dev/ttySx destination_image_name.img\n");
 }
 
 int main(int argc, char* argv[])
 {
-  // Display args if not provided.
-  if (argc!=3)
-    {
-      print_args();
-      exit(1);
-    }
-  else
-    {
-      termio_init(argv[1]);
-      return xmodem_receive(argv[2]);
+    ioctl(STDERR_FILENO, TIOCGWINSZ, &w);
+    // Display args if not provided.
+    if (argc != 3) {
+        print_args();
+        exit(1);
+    } else {
+        termio_init(argv[1]);
+        return xmodem_receive(argv[2]);
     }
 }
