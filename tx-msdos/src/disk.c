@@ -21,7 +21,7 @@ static ReadLog* iterate_read_logs(Disk* disk, unsigned char (*operation)(Disk* d
 
 static char print_read_log(Disk* disk, ReadLog* rl)
 {
-    fprintf(stderr, "\n Block: %lu, Retry Count: %3u, Code: 0x%02X, %s.", rl->sector, rl->retry_count, rl->status_code, rl->status_msg);
+    fprintf(stderr, "\n Blk: %lu, Byte: 0x%08lX, Reads: %3u, 0x%02X, %s.", rl->sector, (unsigned long)rl->sector * 512, rl->retry_count, rl->status_code, rl->status_msg);
     return 0;
 }
 

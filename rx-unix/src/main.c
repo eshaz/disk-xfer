@@ -216,7 +216,7 @@ void xmodem_state_check(void)
     // align buffer
     while (offset < rx_buffer_pos - BLOCK_SIZE) {
         buf = rx_buffer + offset;
-        block_num_byte = block_num & 0xff;
+        block_num_byte = (unsigned long)block_num & 0xff;
 
         // search for valid packets
         if (

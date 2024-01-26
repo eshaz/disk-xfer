@@ -16,14 +16,14 @@
 #include <stdlib.h>
 
 #define BYTE_XMODEM_START 0x43 // C (for CRC)
-#define MAX_READ_RETRY_COUNT 32 // number of times to retry when a read error is encountered (up to 255)
+#define MAX_READ_RETRY_COUNT 128 // number of times to retry when a read error is encountered (up to 255)
 #define READ_RETRY_DELAY_MS 100 // delay introduced when retrying to read
-#define DISK_RESET_INTERVAL 1 // interval to reset the disk heads when an error occurs
-#define MAX_BUFFERED_BLOCKS 4 // number of blocks permitted to be buffered (Linux terminal interfaces allows up to 4096 bytes)
+#define DISK_RESET_INTERVAL 2 // interval to reset the disk heads when an error occurs
+#define MAX_BUFFERED_BLOCKS 8 // number of blocks permitted to be buffered (recommend 8, we'll only send a max of MAX_BUFFERED_BLOCKS / 2, but keep 4 extra in case of a NAK that goes further back)
 
 ProtocolState state = START;
 
-SendPacket* tx_packet;
+SendPacket* tx_packets[MAX_BUFFERED_BLOCKS];
 ReceivePacket* rx_packet;
 Disk* disk;
 
@@ -38,11 +38,10 @@ unsigned char is_fossil = 0;
  * 1   Block # checksum
  * 512 Data
  * 2   CRC
- * 1   ACK/NAK
  */
-unsigned char overhead_size = 6;
-unsigned int sector_size = 512;
+unsigned int sector_size = 512; // may be different if disk geometry specifies something else
 unsigned long start_sector = 0;
+unsigned char* retry_bits;
 
 static char catch_interrupt()
 {
@@ -54,7 +53,7 @@ static char catch_interrupt()
     return 0;
 }
 
-static void update_read_status(unsigned char retry_count)
+static void update_read_status(unsigned char read_count)
 {
     if (disk->status_code) {
         // there is an error
@@ -65,15 +64,15 @@ static void update_read_status(unsigned char retry_count)
         ) {
             // new error, add to the read log
             fprintf(stderr, ".Error: 0x%02X, %s.", disk->status_code, disk->status_msg);
-            add_read_log(disk, retry_count);
+            add_read_log(disk, read_count);
         } else {
             // same error, update the retry count
-            update_read_log(disk, retry_count);
+            update_read_log(disk, read_count);
         }
-    } else if (retry_count > 0) {
+    } else if (read_count > 0) {
         // there is a success, but only after retrying
         fprintf(stderr, ".Recovered: 0x%02X, %s.", disk->status_code, disk->status_msg);
-        add_read_log(disk, retry_count);
+        add_read_log(disk, read_count);
     } else {
         // there is a success, and no retries, don't log
     }
@@ -103,8 +102,12 @@ unsigned short xmodem_calc_crc(char* ptr, short count)
 
 void clean_up()
 {
+    unsigned char i;
+    for (i = 0; i < MAX_BUFFERED_BLOCKS; i++)
+        free(tx_packets[i]);
+
     free_disk(disk);
-    free(tx_packet);
+    free(retry_bits);
     free(rx_buffer);
 }
 
@@ -113,18 +116,30 @@ void clean_up()
  */
 void xmodem_send(unsigned long start, unsigned long baud_rate)
 {
-    start_sector = start;
-    // data to send
-    tx_packet = malloc(sizeof(SendPacket));
-    tx_packet->soh_byte = SOH;
-    // data to receieve
-    rx_packet = malloc(sizeof(ReceivePacket));
-    // buffer for recieve data
+    // ring buffer for sent data
+    unsigned char i;
+    for (i = 0; i < MAX_BUFFERED_BLOCKS; i++) {
+        tx_packets[i] = malloc(sizeof(SendPacket));
+        // initialize to invalid packet so it does not appear buffered
+        tx_packets[i]->block = 0;
+        tx_packets[i]->block_checksum = 0;
+    }
+
+    // ring buffer for recieve data
     rx_buffer = malloc(rx_buffer_size);
     rx_buffer_pos = 0;
     rx_packet->block_num = 0;
 
+    // data to store recieved data
+    rx_packet = malloc(sizeof(ReceivePacket));
+
+    // retry buffer
+    retry_bits = malloc(8 * sector_size);
+
+    // disk structure
     disk = create_disk();
+
+    start_sector = start;
 
     if (int13_disk_geometry(disk) == 1) {
         fprintf(stderr, "\nFATAL: Could not retrieve disk geometry for device 0x%02X! Aborting.", disk->device_id);
@@ -146,7 +161,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     }
 
     set_sector(disk, start_sector);
-    print_welcome(disk, (double)baud_rate / 9 - overhead_size);
+    print_welcome(disk, (double)baud_rate / 9 / sizeof(SendPacket) * sector_size); // effective baud rate = 8 bits - 1 stop bit
     if (!prompt_user("\n\nStart Transfer? [y]: ", 1, 'y')) {
         fprintf(stderr, "\nAborted.");
         return;
@@ -156,7 +171,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     while (1) {
         catch_interrupt();
         // update time every once in a while to avoid midnight rollover issues
-        if (tx_packet->block == 0)
+        if (disk->current_sector % 0xff)
             update_time_elapsed(disk, start_sector);
         switch (state) {
         case START:
@@ -179,14 +194,13 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
 
 static char validate_receive_packet()
 {
-    unsigned char i = 0;
     unsigned short crc1;
     unsigned short crc2;
 
     if (rx_buffer[0] == ACK || rx_buffer[0] == NAK) {
         crc2 = xmodem_calc_crc(rx_buffer, 5);
         crc1 = rx_buffer[5] << 8;
-        crc1|= rx_buffer[6];
+        crc1 |= rx_buffer[6];
 
         if (crc1 == crc2) {
             return 0;
@@ -232,7 +246,7 @@ static unsigned char get_receive_packet()
     rx_packet->block_num |= (unsigned long)rx_buffer[2] << 16;
     rx_packet->block_num |= (unsigned int)rx_buffer[3] << 8;
     rx_packet->block_num |= rx_buffer[4];
-    
+
     // remove this packet from the buffer
     rx_buffer_pos = 0;
     return 1;
@@ -274,60 +288,105 @@ void xmodem_state_start()
  */
 void xmodem_state_block(void)
 {
-    unsigned char* packet_ptr = (unsigned char*)tx_packet;
-    unsigned char* buf = &(tx_packet->data);
+    SendPacket* tx_packet;
+    unsigned char next_block;
+    unsigned char next_block_checksum;
+    unsigned char* packet_ptr;
+    unsigned char* buf;
 
-    short i = 0;
     unsigned short calced_crc;
     unsigned char read_error;
     unsigned long data_written;
-    unsigned char retry_count = 0;
-    ReadLog* rl;
+    unsigned char read_count = 0;
 
-    // try to read the data
-    read_error = int13_read_sector(disk, buf);
+    unsigned char* retry_bit;
+    short byte;
 
-    // retry on error
-    if (read_error) {
-        rl = get_read_log_for_current_sector(disk);
-        // don't do retry logic if this sector was already tried, just resend it
-        if (!(rx_packet->response_code == NAK && rl != NULL)) {
-            // retry through errors
-            while (read_error && retry_count < MAX_READ_RETRY_COUNT) {
+    // get tx packet if it's buffered
+    next_block = ((unsigned long)disk->current_sector - start_sector) & 0xFF;
+    next_block_checksum = 0xFF - next_block;
+
+    tx_packet = tx_packets[next_block % MAX_BUFFERED_BLOCKS];
+    packet_ptr = (unsigned char*)tx_packet;
+    buf = &(tx_packet->data);
+
+    // only read this block if we don't have it buffered
+    // validate the block checksum so uninitialized blocks are not considered buffered
+    if (tx_packet->block != next_block || tx_packet->block_checksum != next_block_checksum) {
+        // read the data
+        read_error = int13_read_sector(disk, buf);
+        read_count++;
+
+        // retry on error
+        if (read_error) {
+            // clear out retry buffer
+            for (byte = 0; byte < sector_size * 8; byte++)
+                retry_bits[byte] = 0;
+
+            // gather samples of each failed block read
+            while (read_error && read_count <= MAX_READ_RETRY_COUNT && read_count != 0xFF) {
                 if (catch_interrupt())
                     return;
 
-                update_read_status(retry_count);
-                fprintf(stderr, "R\b");
-                // reset the disk periodically to reposition the drive heads for a successful read
-                if (!(retry_count % DISK_RESET_INTERVAL)) {
-                    int13_reset_disk_system(disk);
+                // add the previous read result into this buffer
+                for (byte = 0; byte < sector_size; byte++) {
+                    retry_bit = retry_bits + byte * 8;
+                    retry_bit[0] += (buf[byte] & 0x01);
+                    retry_bit[1] += ((buf[byte] >> 1) & 0x01);
+                    retry_bit[2] += ((buf[byte] >> 2) & 0x01);
+                    retry_bit[3] += ((buf[byte] >> 3) & 0x01);
+                    retry_bit[4] += ((buf[byte] >> 4) & 0x01);
+                    retry_bit[5] += ((buf[byte] >> 5) & 0x01);
+                    retry_bit[6] += ((buf[byte] >> 6) & 0x01);
+                    retry_bit[7] += ((buf[byte] >> 7) & 0x01);
                 }
 
-                delay(READ_RETRY_DELAY_MS);
+                update_read_status(read_count);
+                // reset the disk periodically to reposition the drive heads for a successful read
+                if (!(read_count % DISK_RESET_INTERVAL)) {
+                    int13_reset_disk_system(disk);
+                } else {
+                    delay(READ_RETRY_DELAY_MS);
+                }
+
                 read_error = int13_read_sector(disk, buf);
-                retry_count++;
+                read_count++;
             }
 
             if (read_error) {
                 // retries failed
                 fprintf(stderr, "E");
+
+                // set the sent data to the average of each bit in the read sectors
+                for (byte = 0; byte < sector_size; byte++) {
+                    retry_bit = retry_bits + byte * 8;
+                    buf[byte] = 0;
+                    buf[byte] |= (retry_bit[0] >= (MAX_READ_RETRY_COUNT / 2));
+                    buf[byte] |= ((retry_bit[1] >= (MAX_READ_RETRY_COUNT / 2)) << 1);
+                    buf[byte] |= ((retry_bit[2] >= (MAX_READ_RETRY_COUNT / 2)) << 2);
+                    buf[byte] |= ((retry_bit[3] >= (MAX_READ_RETRY_COUNT / 2)) << 3);
+                    buf[byte] |= ((retry_bit[4] >= (MAX_READ_RETRY_COUNT / 2)) << 4);
+                    buf[byte] |= ((retry_bit[5] >= (MAX_READ_RETRY_COUNT / 2)) << 5);
+                    buf[byte] |= ((retry_bit[6] >= (MAX_READ_RETRY_COUNT / 2)) << 6);
+                    buf[byte] |= ((retry_bit[7] >= (MAX_READ_RETRY_COUNT / 2)) << 7);
+                }
             } else {
-                update_read_status(retry_count);
-                fprintf(stderr, "S\b");
+                // send the most recent read, and disregard any retry data
+                update_read_status(read_count);
             }
 
             // clear out any NAKs received during retries
             while (int14_data_waiting())
                 get_receive_packet();
         }
-    }
 
-    calced_crc = xmodem_calc_crc(buf, sector_size);
-    tx_packet->block = (disk->current_sector - start_sector) & 0xff;
-    tx_packet->block_checksum = (unsigned char)0xFF - tx_packet->block;
-    tx_packet->crc_hi = calced_crc >> 8;
-    tx_packet->crc_lo = calced_crc & 0xFF;
+        calced_crc = xmodem_calc_crc(buf, sector_size);
+        tx_packet->soh_byte = SOH;
+        tx_packet->block = next_block;
+        tx_packet->block_checksum = next_block_checksum;
+        tx_packet->crc_hi = calced_crc >> 8;
+        tx_packet->crc_lo = calced_crc & 0xFF;
+    }
 
     if (is_fossil) {
         data_written = 0;
@@ -335,8 +394,8 @@ void xmodem_state_block(void)
             data_written += int14_write_block((char*)packet_ptr + data_written, sizeof(SendPacket) - data_written);
         }
     } else {
-        for (i = 0; i < sizeof(SendPacket); i++) {
-            int14_send_byte(packet_ptr[i]);
+        for (byte = 0; byte < sizeof(SendPacket); byte++) {
+            int14_send_byte(packet_ptr[byte]);
         }
     }
 
@@ -373,7 +432,7 @@ void xmodem_state_check(void)
         default:
             fprintf(stderr, "Unknown Byte: 0x%02X: %c", rx_packet->response_code, rx_packet->response_code);
         }
-    } else if ((signed long)disk->current_sector - start_sector - rx_packet->block_num <= MAX_BUFFERED_BLOCKS) {
+    } else if ((signed long)disk->current_sector - start_sector - rx_packet->block_num <= MAX_BUFFERED_BLOCKS / 2) {
         // send more data
         state = BLOCK;
     } else {
