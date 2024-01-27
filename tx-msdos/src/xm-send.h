@@ -20,7 +20,7 @@
 #define NAK 0x15
 
 typedef enum _state { START,
-    BLOCK,
+    SEND,
     CHECK,
     REBLOCK,
     END } ProtocolState;
@@ -28,18 +28,21 @@ typedef enum _state { START,
 /*
 length | description
      1 | SOH byte (0x01)
-     1 | block # (mod 256)
-     1 | 0xFF - BLOCK # (simple checksum)
+     4 | block #
    512 | data
      2 | CRC
 */
 typedef struct {
     unsigned char soh_byte;
-    unsigned char block;
-    unsigned char block_checksum;
+    unsigned char block0;
+    unsigned char block1;
+    unsigned char block2;
+    unsigned char block3;
     char data[512];
-    unsigned char crc_hi;
-    unsigned char crc_lo;
+    unsigned char crc0;
+    unsigned char crc1;
+    unsigned char crc2;
+    unsigned char crc3;
 } SendPacket;
 
 typedef struct {
@@ -60,7 +63,7 @@ void xmodem_state_start();
 /**
  * Send an XMODEM-512 block with CRC
  */
-void xmodem_state_block(void);
+void xmodem_state_send(void);
 
 /**
  * Wait for ack/nak/cancel from receiver

@@ -17,14 +17,17 @@ int14.obj : src\int14.c .AUTODEPEND
 int1a.obj : src\int1a.c .AUTODEPEND
  *wcc src\int1a.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
 
+crc.obj : src\crc.c .AUTODEPEND
+ *wcc src\crc.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
+
 xm-send.obj : src\xm-send.c .AUTODEPEND
  *wcc src\xm-send.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
 
 main.obj : src\main.c .AUTODEPEND
  *wcc src\main.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
 
-tx.exe : disk.obj utils.obj int13.obj int14.obj int1a.obj main.obj xm-send.obj .AUTODEPEND
- @%write tx.lk1 FIL disk.obj,utils.obj,int13.obj,int14.obj,int1a.obj,main.obj,xm-send.obj
+tx.exe : disk.obj utils.obj int13.obj int14.obj int1a.obj main.obj crc.obj xm-send.obj .AUTODEPEND
+ @%write tx.lk1 FIL disk.obj,utils.obj,int13.obj,int14.obj,int1a.obj,main.obj,crc.obj,xm-send.obj
  @%append tx.lk1 
  *wlink name tx sys dos op m libf cstart_t op maxe=25 op q op symf @tx.lk1
 

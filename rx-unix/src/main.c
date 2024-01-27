@@ -6,6 +6,8 @@
  * Released under GPL version 3.0
  */
 
+#include "crc.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,19 +16,18 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
-#include <errno.h>
 
 typedef enum _state { START,
-    BLOCK,
+    SEND,
     CHECK,
     REBLOCK,
     END } ProtocolState;
 
-#define RX_BUFFER_SIZE 1024 * 16 // max size of tio buffer
-#define TX_BUFFER_SIZE 7 // size of the response packet
+#define BLOCK_SIZE 521 // XMODEM-CRC block overhead.
+#define RX_BUFFER_SIZE BLOCK_SIZE * 16 // max size of tio buffer
+#define TX_BUFFER_SIZE 9 // size of the response packet
 #define TIMEOUT_S 1 // time in 10ths of seconds to wait for data, then timeout with NAK 255 max
 #define BAUD_RATE B115200 // connection baud rate
-#define BLOCK_SIZE 517 // 512 + 5 XMODEM-CRC block overhead.
 
 ProtocolState state = START;
 int serial_read_fd;
@@ -42,28 +43,6 @@ struct winsize w;
 unsigned int current_col = 0;
 
 /**
- * Calculate 16-bit CRC
- */
-unsigned short xmodem_calc_crc(char* ptr, short count)
-{
-    unsigned short crc;
-    char i;
-
-    crc = 0;
-    while (--count >= 0) {
-        crc = crc ^ (unsigned short)*ptr++ << 8;
-        i = 8;
-        do {
-            if (crc & 0x8000)
-                crc = crc << 1 ^ 0x1021;
-            else
-                crc = crc << 1;
-        } while (--i);
-    }
-    return crc;
-}
-
-/**
  * Send byte
  */
 void xmodem_send_byte(unsigned char b)
@@ -73,7 +52,7 @@ void xmodem_send_byte(unsigned char b)
 
 static void send_block(unsigned char response)
 {
-    unsigned short crc;
+    unsigned long crc;
     char i;
     // ACK or NAK
     tx_buffer[0] = response;
@@ -83,11 +62,13 @@ static void send_block(unsigned char response)
     tx_buffer[3] = ((unsigned long)block_num >> 8) & 0xff;
     tx_buffer[4] = block_num & 0xff;
     // crc
-    crc = xmodem_calc_crc(tx_buffer, 5);
-    tx_buffer[5] = crc >> 8;
-    tx_buffer[6] = crc & 0xff;
+    crc = crc32(tx_buffer, 5);
+    tx_buffer[5] = ((unsigned long)crc >> 24) & 0xff;
+    tx_buffer[6] = ((unsigned long)crc >> 16) & 0xff;
+    tx_buffer[7] = ((unsigned long)crc >> 8) & 0xff;
+    tx_buffer[8] = crc & 0xff;
 
-    write(serial_write_fd, tx_buffer, 7);
+    write(serial_write_fd, tx_buffer, TX_BUFFER_SIZE);
 }
 
 static void print_block_status(char* status)
@@ -112,7 +93,8 @@ static void send_ack()
     print_block_status("A");
 }
 
-static void cleanup() {
+static void cleanup()
+{
     free(rx_buffer);
     free(tx_buffer);
     close(outfile_fd);
@@ -121,20 +103,20 @@ static void cleanup() {
 }
 
 /**
- * xmodem start, send C, switch to BLOCK state
+ * xmodem start, send C, switch to SEND state
  */
 void xmodem_state_start(void)
 {
     printf("Sending Ready to Start.\n");
     b = 'C'; // Xmodem CRC start byte.
     write(serial_write_fd, &b, 1); // Write to serial port.
-    state = BLOCK; // Ready to start feeding blocks.
+    state = SEND; // Ready to start feeding blocks.
 }
 
 /**
  * xmodem block - Get XMODEM block into buffer.
  */
-void xmodem_state_block(void)
+void xmodem_state_send(void)
 {
     int i = 0;
     int bytes_read = 0;
@@ -158,30 +140,11 @@ void xmodem_state_block(void)
     state = CHECK;
 }
 
-/**
- * xmodem check crc - given buffer, calculate CRC, and compare against
- * stored value in block.
- */
-unsigned char xmodem_check_crc(unsigned char* buf)
+static void handle_error(char* message)
 {
-    unsigned char* data_ptr = &buf[3];
-    unsigned short crc1;
-    unsigned short crc2 = xmodem_calc_crc(data_ptr, 512);
-
-    crc1 = buf[515] << 8;
-    crc1 |= buf[516];
-
-    if (crc1 == crc2)
-        return 1;
-    else {
-        return 0;
-    }
-}
-
-static void handle_error(char* message) {
-        fprintf(stderr, "%s %i %s\n", message, errno, strerror(errno));
-        cleanup();
-        exit(1);
+    fprintf(stderr, "%s %i %s\n", message, errno, strerror(errno));
+    cleanup();
+    exit(1);
 }
 
 /**
@@ -189,7 +152,7 @@ static void handle_error(char* message) {
  */
 void xmodem_write_block_to_disk(char* buf)
 {
-    char* data_ptr = &buf[3];
+    char* data_ptr = &buf[5];
     int bytes_written = 0;
 
     bytes_written = write(outfile_fd, data_ptr, 512);
@@ -204,37 +167,41 @@ void xmodem_write_block_to_disk(char* buf)
 
 /**
  * xmodem check - Check buffer for well formedness
- * and either send ACK or NAK, return to BLOCK or END.
+ * and either send ACK or NAK, return to SEND or END.
  */
 void xmodem_state_check(void)
 {
     int i;
     int offset = 0;
     unsigned char* buf;
-    unsigned char block_num_byte;
+    unsigned long rx_block_num;
 
     // align buffer
     while (offset < rx_buffer_pos - BLOCK_SIZE) {
         buf = rx_buffer + offset;
-        block_num_byte = (unsigned long)block_num & 0xff;
+
+        rx_block_num = 0;
+        rx_block_num |= (unsigned long)buf[1] << 24;
+        rx_block_num |= (unsigned long)buf[2] << 16;
+        rx_block_num |= (unsigned int)buf[3] << 8;
+        rx_block_num |= buf[4];
 
         // search for valid packets
         if (
             buf[0] == 0x01 && // SOH
-            buf[1] == block_num_byte && // block sequence
-            buf[1] + buf[2] == 0xFF // checksum
+            rx_block_num == block_num // block sequence
         ) {
-            if (xmodem_check_crc(buf)) {
+            if (check_crc32(buf, BLOCK_SIZE - 4, buf + BLOCK_SIZE - 4)) {
+                send_nak();
+                // increment to prevent resyncing on this block
+                offset++;
+                break;
+            } else {
                 send_ack();
                 block_num++;
                 xmodem_write_block_to_disk(buf);
 
                 offset += BLOCK_SIZE;
-            } else {
-                send_nak();
-                // increment to prevent resyncing on this block
-                offset++;
-                break;
             }
         } else {
             // keep searching
@@ -248,7 +215,7 @@ void xmodem_state_check(void)
     }
     rx_buffer_pos -= offset;
 
-    state = BLOCK;
+    state = SEND;
 }
 
 /**
@@ -268,14 +235,13 @@ int xmodem_receive(char* filename)
     rx_buffer = malloc(RX_BUFFER_SIZE);
     tx_buffer = malloc(TX_BUFFER_SIZE);
 
-
     while (state != END) {
         switch (state) {
         case START:
             xmodem_state_start();
             break;
-        case BLOCK:
-            xmodem_state_block();
+        case SEND:
+            xmodem_state_send();
             break;
         case CHECK:
             xmodem_state_check();

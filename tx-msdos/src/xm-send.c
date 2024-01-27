@@ -9,6 +9,7 @@
  */
 
 #include "xm-send.h"
+#include "crc.h"
 #include "int14.h"
 #include "utils.h"
 #include <i86.h>
@@ -28,16 +29,15 @@ ReceivePacket* rx_packet;
 Disk* disk;
 
 unsigned char* rx_buffer;
-const char rx_buffer_size = 7;
+const char rx_buffer_size = 9;
 unsigned char rx_buffer_pos;
 unsigned char is_fossil = 0;
 
 /**
  * 1   SOH
- * 1   Block #
- * 1   Block # checksum
+ * 4   Block #
  * 512 Data
- * 2   CRC
+ * 4   CRC
  */
 unsigned int sector_size = 512; // may be different if disk geometry specifies something else
 unsigned long start_sector = 0;
@@ -78,28 +78,6 @@ static void update_read_status(unsigned char read_count)
     }
 }
 
-/**
- * Calculate 16-bit CRC
- */
-unsigned short xmodem_calc_crc(char* ptr, short count)
-{
-    unsigned short crc;
-    char i;
-
-    crc = 0;
-    while (--count >= 0) {
-        crc = crc ^ (unsigned short)*ptr++ << 8;
-        i = 8;
-        do {
-            if (crc & 0x8000)
-                crc = crc << 1 ^ 0x1021;
-            else
-                crc = crc << 1;
-        } while (--i);
-    }
-    return crc;
-}
-
 void clean_up()
 {
     unsigned char i;
@@ -121,8 +99,10 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     for (i = 0; i < MAX_BUFFERED_BLOCKS; i++) {
         tx_packets[i] = malloc(sizeof(SendPacket));
         // initialize to invalid packet so it does not appear buffered
-        tx_packets[i]->block = 0;
-        tx_packets[i]->block_checksum = 0;
+        tx_packets[i]->block0 = 0xff;
+        tx_packets[i]->block1 = 0xff;
+        tx_packets[i]->block2 = 0xff;
+        tx_packets[i]->block3 = 0xff;
     }
 
     // ring buffer for recieve data
@@ -171,14 +151,14 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     while (1) {
         catch_interrupt();
         // update time every once in a while to avoid midnight rollover issues
-        if (disk->current_sector % 0xff)
+        if (!(disk->current_sector & 0xFF))
             update_time_elapsed(disk, start_sector);
         switch (state) {
         case START:
             xmodem_state_start();
             break;
-        case BLOCK:
-            xmodem_state_block();
+        case SEND:
+            xmodem_state_send();
             break;
         case CHECK:
             xmodem_state_check();
@@ -190,24 +170,6 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
             return;
         }
     }
-}
-
-static char validate_receive_packet()
-{
-    unsigned short crc1;
-    unsigned short crc2;
-
-    if (rx_buffer[0] == ACK || rx_buffer[0] == NAK) {
-        crc2 = xmodem_calc_crc(rx_buffer, 5);
-        crc1 = rx_buffer[5] << 8;
-        crc1 |= rx_buffer[6];
-
-        if (crc1 == crc2) {
-            return 0;
-        }
-    }
-
-    return 1;
 }
 
 static unsigned char get_receive_packet()
@@ -225,7 +187,8 @@ static unsigned char get_receive_packet()
     }
 
     // shift the buffer left and read another byte to resync while response is invalid
-    while (validate_receive_packet()) {
+    while (
+        !(rx_buffer[0] == ACK || rx_buffer[0] == NAK) && check_crc32(rx_buffer, 5, rx_buffer + 5)) {
         // shift buffer left
         for (i = 1; i < rx_buffer_size; i++)
             rx_buffer[i - 1] = rx_buffer[i];
@@ -272,7 +235,7 @@ void xmodem_state_start()
 
             if (int14_data_waiting() != 0) {
                 if (int14_read_byte() == 'C') {
-                    state = BLOCK;
+                    state = SEND;
                     fprintf(stderr, "\nStarting Transfer!\n");
                     update_time_elapsed(disk, start_sector);
                     return;
@@ -286,15 +249,15 @@ void xmodem_state_start()
 /**
  * Send an XMODEM-512 block with CRC
  */
-void xmodem_state_block(void)
+void xmodem_state_send(void)
 {
     SendPacket* tx_packet;
-    unsigned char next_block;
-    unsigned char next_block_checksum;
+    unsigned long next_block;
+    unsigned long tx_packet_next_block;
     unsigned char* packet_ptr;
     unsigned char* buf;
 
-    unsigned short calced_crc;
+    unsigned long calced_crc;
     unsigned char read_error;
     unsigned long data_written;
     unsigned char read_count = 0;
@@ -303,16 +266,21 @@ void xmodem_state_block(void)
     short byte;
 
     // get tx packet if it's buffered
-    next_block = ((unsigned long)disk->current_sector - start_sector) & 0xFF;
-    next_block_checksum = 0xFF - next_block;
+    next_block = ((unsigned long)disk->current_sector - start_sector);
 
     tx_packet = tx_packets[next_block % MAX_BUFFERED_BLOCKS];
+    tx_packet_next_block = 0;
+    tx_packet_next_block |= (unsigned long)tx_packet->block0 << 24;
+    tx_packet_next_block |= (unsigned long)tx_packet->block1 << 16;
+    tx_packet_next_block |= (unsigned int)tx_packet->block2 << 8;
+    tx_packet_next_block |= tx_packet->block3;
+
     packet_ptr = (unsigned char*)tx_packet;
     buf = &(tx_packet->data);
 
     // only read this block if we don't have it buffered
     // validate the block checksum so uninitialized blocks are not considered buffered
-    if (tx_packet->block != next_block || tx_packet->block_checksum != next_block_checksum) {
+    if (tx_packet_next_block != next_block) {
         // read the data
         read_error = int13_read_sector(disk, buf);
         read_count++;
@@ -380,12 +348,17 @@ void xmodem_state_block(void)
                 get_receive_packet();
         }
 
-        calced_crc = xmodem_calc_crc(buf, sector_size);
         tx_packet->soh_byte = SOH;
-        tx_packet->block = next_block;
-        tx_packet->block_checksum = next_block_checksum;
-        tx_packet->crc_hi = calced_crc >> 8;
-        tx_packet->crc_lo = calced_crc & 0xFF;
+        tx_packet->block0 = ((unsigned long)next_block >> 24) & 0xff;
+        tx_packet->block1 = ((unsigned long)next_block >> 16) & 0xff;
+        tx_packet->block2 = ((unsigned long)next_block >> 8) & 0xff;
+        tx_packet->block3 = next_block & 0xff;
+
+        calced_crc = crc32(packet_ptr, sizeof(SendPacket) - 4);
+        tx_packet->crc0 = ((unsigned long)calced_crc >> 24) & 0xff;
+        tx_packet->crc1 = ((unsigned long)calced_crc >> 16) & 0xff;
+        tx_packet->crc2 = ((unsigned long)calced_crc >> 8) & 0xff;
+        tx_packet->crc3 = calced_crc & 0xff;
     }
 
     if (is_fossil) {
@@ -411,7 +384,6 @@ void xmodem_state_block(void)
  */
 void xmodem_state_check(void)
 {
-    unsigned long new_sector;
     if (get_receive_packet()) {
         switch (rx_packet->response_code) {
         case ACK:
@@ -424,17 +396,16 @@ void xmodem_state_check(void)
             }
             break;
         case NAK:
-            new_sector = (unsigned long)start_sector + rx_packet->block_num;
-            set_sector(disk, new_sector); // reset to the nak'd block
+            set_sector(disk, (unsigned long)start_sector + rx_packet->block_num); // reset to the nak'd block
             fprintf(stderr, "N");
-            state = BLOCK; // Resend.
+            state = SEND;
             break;
         default:
             fprintf(stderr, "Unknown Byte: 0x%02X: %c", rx_packet->response_code, rx_packet->response_code);
         }
     } else if ((signed long)disk->current_sector - start_sector - rx_packet->block_num <= MAX_BUFFERED_BLOCKS / 2) {
         // send more data
-        state = BLOCK;
+        state = SEND;
     } else {
         // buffering
     }
