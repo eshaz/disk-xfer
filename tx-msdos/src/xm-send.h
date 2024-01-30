@@ -18,11 +18,13 @@
 #define SOH 0x01
 #define ACK 0x06
 #define NAK 0x15
+#define SYN 0x16
 
 typedef enum _state { START,
     SEND,
     CHECK,
     REBLOCK,
+    ABORT,
     END } ProtocolState;
 
 /*

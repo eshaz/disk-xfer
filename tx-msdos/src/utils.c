@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 double time_elapsed;
 double bytes_per_second;
@@ -23,6 +24,16 @@ void update_time_elapsed(Disk* disk, unsigned long start_sector)
     bytes_per_second = (double)total_bytes_read / time_elapsed;
 }
 
+void* malloc_with_check(unsigned long size) {
+    void* ptr = malloc(size);
+    if (ptr == NULL) {
+        fprintf(stderr, "FATAL: Failed to allocate %lu bytes of memory.\n", size);
+        exit(1);
+    }
+    return ptr;
+}
+
+#pragma code_seg ( "utils" ) ;
 static char get_number_length(unsigned long n)
 {
     if (n < 10)
@@ -46,11 +57,13 @@ static char get_number_length(unsigned long n)
     return 10;
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_right_aligned(unsigned long to_print, unsigned long to_align)
 {
     fprintf(stderr, "%*s%lu", get_number_length(to_align) - get_number_length(to_print), "", to_print);
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_c_s_h(CHS position, CHS geometry)
 {
     fprintf(stderr, "C: ");
@@ -61,6 +74,7 @@ static void print_c_s_h(CHS position, CHS geometry)
     print_right_aligned(position.s, geometry.s);
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_block_progress(Disk* disk)
 {
     float progress = (float)disk->current_sector / disk->total_sectors * 100;
@@ -71,6 +85,7 @@ static void print_block_progress(Disk* disk)
     fprintf(stderr, " (%3.2f %%)", progress);
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_separator()
 {
     char i;
@@ -79,6 +94,7 @@ static void print_separator()
     }
 }
 
+#pragma code_seg ( "utils" ) ;
 void print_update(
     char* prefix,
     char* message,
@@ -91,11 +107,13 @@ void print_update(
     fprintf(stderr, message);
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_drive_summary(Disk* disk)
 {
     fprintf(stderr, "\n SOURCE : 0x%02X, C: drive", disk->device_id);
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_start_blocks(Disk* disk)
 {
     fprintf(stderr, "\n START  : Byte: ");
@@ -106,6 +124,7 @@ static void print_start_blocks(Disk* disk)
     print_c_s_h(disk->position, disk->geometry);
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_end_blocks(Disk* disk)
 {
     fprintf(stderr, "\n END    : Byte: ");
@@ -116,6 +135,7 @@ static void print_end_blocks(Disk* disk)
     print_c_s_h(disk->geometry, disk->geometry);
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_elapsed(Disk* disk, double time, double bps)
 {
     fprintf(stderr, "\n Elapsed: %u Hours, %u Minutes, %lu Seconds",
@@ -127,6 +147,7 @@ static void print_elapsed(Disk* disk, double time, double bps)
     }
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_estimated(Disk* disk, double bps)
 {
     double time = (double)(disk->total_bytes - disk->current_byte) / bps;
@@ -138,7 +159,17 @@ static void print_estimated(Disk* disk, double bps)
         bps);
 }
 
-void print_status(Disk* disk)
+#pragma code_seg ( "utils" ) ;
+static void print_hash(unsigned char* hash)
+{
+    char i;
+    fprintf(stderr, " MD5    : ");
+    for (i = 0; i < 16; i++)
+        fprintf(stderr, "%02x", hash[i]);
+}
+
+#pragma code_seg ( "utils" ) ;
+void print_status(Disk* disk, unsigned char* hash)
 {
     fprintf(stderr, "\n");
     print_separator();
@@ -161,9 +192,17 @@ void print_status(Disk* disk)
     print_separator();
     print_update("\n ", "\n", disk);
     print_separator();
-    fprintf(stderr, "\n");
+
+    if (hash != NULL) {
+        fprintf(stderr, "\n");
+        print_hash(hash);
+        fprintf(stderr, "\n");
+        print_separator();
+        fprintf(stderr, "\n");
+    }
 }
 
+#pragma code_seg ( "utils" ) ;
 void print_read_logs_status(Disk* disk)
 {
     fprintf(stderr, "\nRead Log...\n");
@@ -174,6 +213,7 @@ void print_read_logs_status(Disk* disk)
     fprintf(stderr, "\n");
 }
 
+#pragma code_seg ( "utils" ) ;
 static void print_help()
 {
     fprintf(stderr, "\n");
@@ -185,6 +225,7 @@ static void print_help()
     print_separator();
 }
 
+#pragma code_seg ( "utils" ) ;
 void print_welcome(Disk* disk, double estimated_bytes_per_second)
 {
     fprintf(stderr, "Disk Image Summary...");
@@ -211,49 +252,8 @@ void print_welcome(Disk* disk, double estimated_bytes_per_second)
     print_help();
 }
 
-int prompt_user(char* msg, char default_yes, char yes_key)
-{
-    char prompt;
-
-    fflush(stdin);
-    fprintf(stderr, msg);
-    prompt = getchar();
-    if (prompt == yes_key || (default_yes && prompt == '\n')) {
-        return 1;
-    }
-    return 0;
-}
-
-int interrupt_handler(Disk* disk, unsigned long start_sector)
-{
-    char prompt;
-    char printed_status = 0;
-    char printed_help = 0;
-    char printed_read_logs = 0;
-
-    while (kbhit()) {
-        prompt = getch();
-        // CTRL-C or ESC
-        if (prompt == 3 || prompt == 27) {
-            return 1;
-        }
-
-        if ((prompt == 's' || prompt == 'S') && !printed_status) {
-            update_time_elapsed(disk, start_sector);
-            print_status(disk);
-            printed_status = 1;
-        } else if ((prompt == 'l' || prompt == 'L') && !printed_read_logs) {
-            print_read_logs_status(disk);
-            printed_read_logs = 1;
-        } else if (!printed_help) {
-            print_help();
-            printed_help = 1;
-        }
-    }
-    return 0;
-}
-
-static void print_report(Disk* disk, unsigned long start_sector)
+#pragma code_seg ( "utils" ) ;
+static void print_report(Disk* disk, unsigned char* hash, unsigned long start_sector)
 {
     CHS geometry = disk->geometry;
     CHS position = disk->position;
@@ -297,13 +297,21 @@ static void print_report(Disk* disk, unsigned long start_sector)
     print_separator();
     print_update("\n ", "\n", disk);
     print_separator();
-    fprintf(stderr, "\n");
 
+    fprintf(stderr, "\n\nMD5 Hash...\n");
+    print_separator();
+    fprintf(stderr, "\n");
+    print_hash(hash);
+    fprintf(stderr, "\n");
+    print_separator();
+    fprintf(stderr, "\n");
+    
     print_read_logs_status(disk);
     fflush(stderr);
 }
 
-void save_report(Disk* disk, unsigned long start_sector)
+#pragma code_seg ( "utils" ) ;
+void save_report(Disk* disk, unsigned char* hash, unsigned long start_sector)
 {
     int fd = 0;
     int stderr_copy = 0;
@@ -331,7 +339,7 @@ void save_report(Disk* disk, unsigned long start_sector)
             break;
         }
 
-        print_report(disk, start_sector);
+        print_report(disk, hash, start_sector);
 
         if (dup2(stderr_copy, 2) < 0) {
             fprintf(stderr, "\nUnable to replace stderr");
@@ -347,4 +355,46 @@ void save_report(Disk* disk, unsigned long start_sector)
         }
     }
     fprintf(stderr, "\nNot saving report.");
+}
+
+int prompt_user(char* msg, char default_yes, char yes_key)
+{
+    char prompt;
+
+    fflush(stdin);
+    fprintf(stderr, msg);
+    prompt = getchar();
+    if (prompt == yes_key || (default_yes && prompt == '\n')) {
+        return 1;
+    }
+    return 0;
+}
+
+int interrupt_handler(Disk* disk, unsigned long start_sector)
+{
+    char prompt;
+    char printed_status = 0;
+    char printed_help = 0;
+    char printed_read_logs = 0;
+
+    while (kbhit()) {
+        prompt = getch();
+        // CTRL-C or ESC
+        if (prompt == 3 || prompt == 27) {
+            return 1;
+        }
+
+        if ((prompt == 's' || prompt == 'S') && !printed_status) {
+            update_time_elapsed(disk, start_sector);
+            print_status(disk, NULL);
+            printed_status = 1;
+        } else if ((prompt == 'l' || prompt == 'L') && !printed_read_logs) {
+            print_read_logs_status(disk);
+            printed_read_logs = 1;
+        } else if (!printed_help) {
+            print_help();
+            printed_help = 1;
+        }
+    }
+    return 0;
 }

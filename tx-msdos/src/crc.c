@@ -124,5 +124,5 @@ unsigned char check_crc32(const void* buf, unsigned long size, const void* expec
     expected_crc |= (unsigned int)p[2] << 8;
     expected_crc |= p[3];
 
-    return expected_crc != actual_crc;
+    return expected_crc == actual_crc;
 }

@@ -26,15 +26,15 @@ typedef enum _state { START,
 #define BLOCK_SIZE 521 // XMODEM-CRC block overhead.
 #define RX_BUFFER_SIZE BLOCK_SIZE * 16 // max size of tio buffer
 #define TX_BUFFER_SIZE 9 // size of the response packet
-#define TIMEOUT_S 1 // time in 10ths of seconds to wait for data, then timeout with NAK 255 max
 #define BAUD_RATE B115200 // connection baud rate
+#define READ_DELAY_US (115200 / 9) // amount of time to sleep between reads (allow the serial port buffer to fill)
 
 ProtocolState state = START;
 int serial_read_fd;
 int serial_write_fd;
 int outfile_fd;
 unsigned char b;
-unsigned long block_num = 0;
+unsigned int block_num = 0;
 
 unsigned char* rx_buffer;
 unsigned int rx_buffer_pos;
@@ -52,21 +52,26 @@ void xmodem_send_byte(unsigned char b)
 
 static void send_block(unsigned char response)
 {
-    unsigned long crc;
+    unsigned int crc;
     char i;
     // ACK or NAK
     tx_buffer[0] = response;
     // current block number incrementing from first block recieved
-    tx_buffer[1] = ((unsigned long)block_num >> 24) & 0xff;
-    tx_buffer[2] = ((unsigned long)block_num >> 16) & 0xff;
-    tx_buffer[3] = ((unsigned long)block_num >> 8) & 0xff;
+    tx_buffer[1] = ((unsigned int)block_num >> 24) & 0xff;
+    tx_buffer[2] = ((unsigned int)block_num >> 16) & 0xff;
+    tx_buffer[3] = ((unsigned int)block_num >> 8) & 0xff;
     tx_buffer[4] = block_num & 0xff;
     // crc
     crc = crc32(tx_buffer, 5);
-    tx_buffer[5] = ((unsigned long)crc >> 24) & 0xff;
-    tx_buffer[6] = ((unsigned long)crc >> 16) & 0xff;
-    tx_buffer[7] = ((unsigned long)crc >> 8) & 0xff;
+    tx_buffer[5] = ((unsigned int)crc >> 24) & 0xff;
+    tx_buffer[6] = ((unsigned int)crc >> 16) & 0xff;
+    tx_buffer[7] = ((unsigned int)crc >> 8) & 0xff;
     tx_buffer[8] = crc & 0xff;
+
+    fprintf(stderr, "send ");
+    for (i = 0; i < 9; i++)
+        fprintf(stderr, "%02X ", tx_buffer[i]);
+    fprintf(stderr, "\n");
 
     write(serial_write_fd, tx_buffer, TX_BUFFER_SIZE);
 }
@@ -91,6 +96,12 @@ static void send_ack()
 {
     send_block(0x06); // ACK
     print_block_status("A");
+}
+
+static void send_syn()
+{
+    send_block(0x16); // SYN
+    print_block_status("S");
 }
 
 static void cleanup()
@@ -119,19 +130,24 @@ void xmodem_state_start(void)
 void xmodem_state_send(void)
 {
     int i = 0;
-    int bytes_read = 0;
+    int bytes_read = -1;
     int data_to_pull = 0;
 
-    while (i < BLOCK_SIZE && rx_buffer_pos < RX_BUFFER_SIZE) {
+    usleep(READ_DELAY_US);
+    while (bytes_read != 0 && rx_buffer_pos < RX_BUFFER_SIZE) {
         bytes_read = read(serial_read_fd, rx_buffer + rx_buffer_pos, RX_BUFFER_SIZE - rx_buffer_pos);
-        if (bytes_read == 0)
-            send_nak();
 
         rx_buffer_pos += bytes_read;
         i += bytes_read;
+
+        if (i == 0) {
+            // resend last response
+            //write(serial_write_fd, tx_buffer, TX_BUFFER_SIZE);
+        }
     }
 
-    fprintf(stderr, "R\b");
+    //fprintf(stderr, "R\b");
+    //fprintf(stderr, "\nbytes read %u", i);
 
     if (rx_buffer_pos == RX_BUFFER_SIZE) {
         fprintf(stderr, "Buffer full!\n");
@@ -174,34 +190,55 @@ void xmodem_state_check(void)
     int i;
     int offset = 0;
     unsigned char* buf;
-    unsigned long rx_block_num;
+    unsigned int rx_block_num;
+    unsigned char crc_result;
 
+    //fprintf(stderr, "rx buffer start %u\n", rx_buffer_pos);
     // align buffer
-    while (offset < rx_buffer_pos - BLOCK_SIZE) {
+    while (rx_buffer_pos >= offset + BLOCK_SIZE) {
         buf = rx_buffer + offset;
 
-        rx_block_num = 0;
-        rx_block_num |= (unsigned long)buf[1] << 24;
-        rx_block_num |= (unsigned long)buf[2] << 16;
-        rx_block_num |= (unsigned int)buf[3] << 8;
-        rx_block_num |= buf[4];
+        // search for valid packets on SOH
+        if (buf[0] == 0x01) {
+            crc_result = check_crc32(buf, BLOCK_SIZE - 4, buf + BLOCK_SIZE - 4);
+            
+            rx_block_num = 0;
+            rx_block_num |= (unsigned int)buf[1] << 24;
+            rx_block_num |= (unsigned int)buf[2] << 16;
+            rx_block_num |= (unsigned int)buf[3] << 8;
+            rx_block_num |= buf[4];
 
-        // search for valid packets
-        if (
-            buf[0] == 0x01 && // SOH
-            rx_block_num == block_num // block sequence
-        ) {
-            if (check_crc32(buf, BLOCK_SIZE - 4, buf + BLOCK_SIZE - 4)) {
-                send_nak();
+            if (crc_result) {
+                // valid block
+                //fprintf(stderr, " rx block %u %u ", rx_block_num, block_num);
+
+                if (rx_block_num == block_num) {
+                    // blocks are synced
+                    send_ack();
+                    fprintf(stderr, " %u %u", rx_block_num, block_num);
+                    block_num++;
+                    xmodem_write_block_to_disk(buf);
+                    offset += BLOCK_SIZE;
+                } else if (rx_block_num > block_num) {
+                    // blocks are not synced
+                    send_syn();
+                    fprintf(stderr, "%s syn %u %u", tx_buffer[0] == 0x06 ? "A" : "N", rx_block_num, block_num);
+                    offset += BLOCK_SIZE;
+                } else {
+                    // rx_block_num < block_num
+                    // catching up from previous NAKs
+                    send_ack();
+                    fprintf(stderr, " old %u %u", rx_block_num, block_num);
+                    offset += BLOCK_SIZE;
+                }
+            } else {
+                // probably aligned, sent NAK
+                if (rx_block_num == block_num) {
+                    send_nak();
+                    fprintf(stderr, " crc %u %u", rx_block_num, block_num);
+                }
                 // increment to prevent resyncing on this block
                 offset++;
-                break;
-            } else {
-                send_ack();
-                block_num++;
-                xmodem_write_block_to_disk(buf);
-
-                offset += BLOCK_SIZE;
             }
         } else {
             // keep searching
@@ -214,6 +251,8 @@ void xmodem_state_check(void)
         rx_buffer[i] = rx_buffer[i + offset];
     }
     rx_buffer_pos -= offset;
+
+    //fprintf(stderr, "rx buffer end %u\n", rx_buffer_pos);
 
     state = SEND;
 }
@@ -271,7 +310,7 @@ int termio_init(char* serial_filename)
     tio.c_lflag &= ~ICANON;
     tio.c_lflag &= ~ISIG;
     tio.c_cc[VMIN] = 0;
-    tio.c_cc[VTIME] = TIMEOUT_S;
+    tio.c_cc[VTIME] = 0;
 
     serial_read_fd = open(serial_filename, O_RDONLY);
     serial_write_fd = open(serial_filename, O_WRONLY);

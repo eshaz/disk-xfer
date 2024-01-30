@@ -11,6 +11,7 @@
 #include "xm-send.h"
 #include "crc.h"
 #include "int14.h"
+#include "md5.h"
 #include "utils.h"
 #include <i86.h>
 #include <stdio.h>
@@ -20,18 +21,32 @@
 #define MAX_READ_RETRY_COUNT 128 // number of times to retry when a read error is encountered (up to 255)
 #define READ_RETRY_DELAY_MS 100 // delay introduced when retrying to read
 #define DISK_RESET_INTERVAL 2 // interval to reset the disk heads when an error occurs
-#define MAX_BUFFERED_BLOCKS 8 // number of blocks permitted to be buffered (recommend 8, we'll only send a max of MAX_BUFFERED_BLOCKS / 2, but keep 4 extra in case of a NAK that goes further back)
+#define MAX_BUFFERED_SEND_PACKETS 4 // number of blocks permitted to be buffered (recommend 8, we'll only send a max of MAX_read_blocks / 2, but keep 4 extra in case of a NAK that goes further back)
+#define ABORT_TIMEOUT_MS 1000 // Time in milliseconds to spend flushing the buffer when the user aborts the transfer
+#define RESEND_TIMEOUT_MS 100 // Time in milliseconds to wait to resend packets after no response from receive
+
+#define MAX(a, b) a > b ? a : b
 
 ProtocolState state = START;
 
-SendPacket* tx_packets[MAX_BUFFERED_BLOCKS];
+SendPacket* tx_packets[MAX_BUFFERED_SEND_PACKETS];
 ReceivePacket* rx_packet;
 Disk* disk;
+
+unsigned long completed_blocks = 0;
+unsigned long current_blocks = 0;
+unsigned long read_blocks = 0;
+unsigned char hash[16] = {0};
+md5_ctx* md5;
 
 unsigned char* rx_buffer;
 const char rx_buffer_size = 9;
 unsigned char rx_buffer_pos;
+
 unsigned char is_fossil = 0;
+unsigned int abort_timeout = 0;
+unsigned int resend_timeout = 0;
+unsigned char resent = 0;
 
 /**
  * 1   SOH
@@ -47,7 +62,7 @@ static char catch_interrupt()
 {
     if (interrupt_handler(disk, start_sector)) {
         fprintf(stderr, "\nReceived Interrupt. Aborting transfer.\n");
-        state = END;
+        set_state(ABORT);
         return 1;
     }
     return 0;
@@ -81,12 +96,14 @@ static void update_read_status(unsigned char read_count)
 void clean_up()
 {
     unsigned char i;
-    for (i = 0; i < MAX_BUFFERED_BLOCKS; i++)
+    for (i = 0; i < MAX_BUFFERED_SEND_PACKETS; i++)
         free(tx_packets[i]);
-
+    
+    free(rx_packet);
     free_disk(disk);
     free(retry_bits);
     free(rx_buffer);
+    free(md5);
 }
 
 /**
@@ -96,8 +113,8 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
 {
     // ring buffer for sent data
     unsigned char i;
-    for (i = 0; i < MAX_BUFFERED_BLOCKS; i++) {
-        tx_packets[i] = malloc(sizeof(SendPacket));
+    for (i = 0; i < MAX_BUFFERED_SEND_PACKETS; i++) {
+        tx_packets[i] = malloc_with_check(sizeof(SendPacket));
         // initialize to invalid packet so it does not appear buffered
         tx_packets[i]->block0 = 0xff;
         tx_packets[i]->block1 = 0xff;
@@ -105,19 +122,24 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
         tx_packets[i]->block3 = 0xff;
     }
 
-    // ring buffer for recieve data
-    rx_buffer = malloc(rx_buffer_size);
-    rx_buffer_pos = 0;
-    rx_packet->block_num = 0;
+    // initialize to invalid packet so it does not appear buffered
+    rx_packet = malloc_with_check(sizeof(ReceivePacket));
+    rx_packet->response_code = 0xFF;
+    rx_packet->block_num = ~0UL;
 
-    // data to store recieved data
-    rx_packet = malloc(sizeof(ReceivePacket));
+    // ring buffer for recieve data
+    rx_buffer = malloc_with_check(rx_buffer_size);
+    rx_buffer_pos = 0;
 
     // retry buffer
-    retry_bits = malloc(8 * sector_size);
+    retry_bits = malloc_with_check(sector_size * 8);
 
     // disk structure
     disk = create_disk();
+
+    // md5 hash
+    md5 = malloc_with_check(sizeof(md5_ctx));
+    md5_init_ctx(md5);
 
     start_sector = start;
 
@@ -160,59 +182,83 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
         case SEND:
             xmodem_state_send();
             break;
+        case ABORT:
+            if (state == START) {
+                set_state(END);
+                break;
+            } else if (abort_timeout < ABORT_TIMEOUT_MS && read_blocks != completed_blocks) {
+                delay(1);
+                abort_timeout++;
+            } else {
+                set_state(END);
+                break;
+            }
         case CHECK:
             xmodem_state_check();
             break;
         case REBLOCK:
         case END:
-            save_report(disk, start_sector);
+            update_time_elapsed(disk, start_sector);
+            md5_finish_ctx(md5, hash);
+            print_status(disk, hash);
+            save_report(disk, hash, start_sector);
             clean_up();
             return;
         }
     }
 }
 
-static unsigned char get_receive_packet()
+static unsigned char receive_packets()
 {
+    unsigned long rx_block_num;
     unsigned char i;
     unsigned char bytes_read = 0;
 
-    // fill the current buffer
+    // fill the buffer
+    read:
     while (rx_buffer_pos < rx_buffer_size) {
         bytes_read = int14_read_block(rx_buffer + rx_buffer_pos, rx_buffer_size - rx_buffer_pos);
         if (bytes_read == 0)
+            // not enough data to form a packet
             return 0;
 
         rx_buffer_pos += bytes_read;
     }
 
-    // shift the buffer left and read another byte to resync while response is invalid
-    while (
-        !(rx_buffer[0] == ACK || rx_buffer[0] == NAK) && check_crc32(rx_buffer, 5, rx_buffer + 5)) {
-        // shift buffer left
+    if ((rx_buffer[0] == ACK || rx_buffer[0] == NAK || rx_buffer[0] == SYN) && check_crc32(rx_buffer, 5, rx_buffer + 5)) {
+        // clear the buffer for the next read
+        rx_buffer_pos = 0;
+        
+        // synced on valid packet
+        rx_block_num = 0;
+        rx_block_num |= (unsigned long)rx_buffer[1] << 24;
+        rx_block_num |= (unsigned long)rx_buffer[2] << 16;
+        rx_block_num |= (unsigned int)rx_buffer[3] << 8;
+        rx_block_num |= rx_buffer[4];
+
+        rx_packet->response_code = rx_buffer[0];
+        rx_packet->block_num = rx_block_num;
+    
+        //if (rx_packet->block_num < completed_blocks) {
+            //skip
+        //} else {
+            return 1;
+        //}
+    } else {
+        // continue syncing
         for (i = 1; i < rx_buffer_size; i++)
             rx_buffer[i - 1] = rx_buffer[i];
 
-        rx_buffer_pos = rx_buffer_size - 1;
-
-        bytes_read = int14_read_block(rx_buffer + rx_buffer_size - 1, 1);
-
-        if (bytes_read == 0)
-            return 0;
-        rx_buffer_pos++;
+        rx_buffer_pos--;
+        goto read;
     }
 
-    // found valid packet, save it
-    rx_packet->response_code = rx_buffer[0];
-    rx_packet->block_num = 0;
-    rx_packet->block_num |= (unsigned long)rx_buffer[1] << 24;
-    rx_packet->block_num |= (unsigned long)rx_buffer[2] << 16;
-    rx_packet->block_num |= (unsigned int)rx_buffer[3] << 8;
-    rx_packet->block_num |= rx_buffer[4];
+    return 0;
+}
 
-    // remove this packet from the buffer
-    rx_buffer_pos = 0;
-    return 1;
+static void flush_receive_buffer() {
+    while (int14_data_waiting())
+        int14_read_byte();
 }
 
 /**
@@ -223,7 +269,7 @@ void xmodem_state_start()
     unsigned int wait = 0;
     short wait_time;
 
-    fprintf(stderr, "\nWaiting for receiver");
+    fprintf(stderr, "\nWaiting for receiver.");
     while (state == START) {
         wait_time = 1000;
         wait++;
@@ -235,8 +281,10 @@ void xmodem_state_start()
 
             if (int14_data_waiting() != 0) {
                 if (int14_read_byte() == 'C') {
-                    state = SEND;
+                    set_state(SEND);
                     fprintf(stderr, "\nStarting Transfer!\n");
+                    delay(100);
+                    flush_receive_buffer();
                     update_time_elapsed(disk, start_sector);
                     return;
                 }
@@ -252,8 +300,8 @@ void xmodem_state_start()
 void xmodem_state_send(void)
 {
     SendPacket* tx_packet;
-    unsigned long next_block;
-    unsigned long tx_packet_next_block;
+    unsigned long current_packet_block;
+    unsigned long tx_packet_current_block;
     unsigned char* packet_ptr;
     unsigned char* buf;
 
@@ -266,21 +314,21 @@ void xmodem_state_send(void)
     short byte;
 
     // get tx packet if it's buffered
-    next_block = ((unsigned long)disk->current_sector - start_sector);
+    current_packet_block = ((unsigned long)disk->current_sector - start_sector);
 
-    tx_packet = tx_packets[next_block % MAX_BUFFERED_BLOCKS];
-    tx_packet_next_block = 0;
-    tx_packet_next_block |= (unsigned long)tx_packet->block0 << 24;
-    tx_packet_next_block |= (unsigned long)tx_packet->block1 << 16;
-    tx_packet_next_block |= (unsigned int)tx_packet->block2 << 8;
-    tx_packet_next_block |= tx_packet->block3;
+    tx_packet = tx_packets[current_packet_block % MAX_BUFFERED_SEND_PACKETS];
+    tx_packet_current_block = 0;
+    tx_packet_current_block |= (unsigned long)tx_packet->block0 << 24;
+    tx_packet_current_block |= (unsigned long)tx_packet->block1 << 16;
+    tx_packet_current_block |= (unsigned int)tx_packet->block2 << 8;
+    tx_packet_current_block |= tx_packet->block3;
 
     packet_ptr = (unsigned char*)tx_packet;
     buf = &(tx_packet->data);
 
     // only read this block if we don't have it buffered
     // validate the block checksum so uninitialized blocks are not considered buffered
-    if (tx_packet_next_block != next_block) {
+    if (tx_packet_current_block != current_packet_block) {
         // read the data
         read_error = int13_read_sector(disk, buf);
         read_count++;
@@ -288,8 +336,7 @@ void xmodem_state_send(void)
         // retry on error
         if (read_error) {
             // clear out retry buffer
-            for (byte = 0; byte < sector_size * 8; byte++)
-                retry_bits[byte] = 0;
+            memset(retry_bits, 0, sector_size * 8);
 
             // gather samples of each failed block read
             while (read_error && read_count <= MAX_READ_RETRY_COUNT && read_count != 0xFF) {
@@ -325,7 +372,7 @@ void xmodem_state_send(void)
                 // retries failed
                 fprintf(stderr, "E");
 
-                // set the sent data to the average of each bit in the read sectors
+                // set the sent data to the consensus (average) of each bit in the read sectors
                 for (byte = 0; byte < sector_size; byte++) {
                     retry_bit = retry_bits + byte * 8;
                     buf[byte] = 0;
@@ -343,22 +390,28 @@ void xmodem_state_send(void)
                 update_read_status(read_count);
             }
 
-            // clear out any NAKs received during retries
-            while (int14_data_waiting())
-                get_receive_packet();
+            flush_receive_buffer();
         }
 
         tx_packet->soh_byte = SOH;
-        tx_packet->block0 = ((unsigned long)next_block >> 24) & 0xff;
-        tx_packet->block1 = ((unsigned long)next_block >> 16) & 0xff;
-        tx_packet->block2 = ((unsigned long)next_block >> 8) & 0xff;
-        tx_packet->block3 = next_block & 0xff;
+        tx_packet->block0 = ((unsigned long)current_packet_block >> 24) & 0xff;
+        tx_packet->block1 = ((unsigned long)current_packet_block >> 16) & 0xff;
+        tx_packet->block2 = ((unsigned long)current_packet_block >> 8) & 0xff;
+        tx_packet->block3 = current_packet_block & 0xff;
 
         calced_crc = crc32(packet_ptr, sizeof(SendPacket) - 4);
         tx_packet->crc0 = ((unsigned long)calced_crc >> 24) & 0xff;
         tx_packet->crc1 = ((unsigned long)calced_crc >> 16) & 0xff;
         tx_packet->crc2 = ((unsigned long)calced_crc >> 8) & 0xff;
         tx_packet->crc3 = calced_crc & 0xff;
+
+        md5_process_block(
+            tx_packet->data,
+            sector_size,
+            md5
+        );
+
+        read_blocks++;
     }
 
     if (is_fossil) {
@@ -372,41 +425,208 @@ void xmodem_state_send(void)
         }
     }
 
-    if (disk->current_sector < disk->total_sectors) {
-        set_sector(disk, (unsigned long)disk->current_sector + 1); // increment to read the next sector
-    }
+    //fprintf(stderr, "sent %lu.", current_packet_block);
+    resend_timeout = 0;
 
-    state = CHECK;
+    set_state(CHECK);
 }
 
+// 1 if there are more blocks to complete
+// 0 if everything is complete
+static unsigned char set_complete(unsigned long rx_block) {
+    completed_blocks = rx_block;
+
+    if ((unsigned long) completed_blocks + start_sector >= disk->total_sectors) {
+        fprintf(stderr, "\nTransfer complete!");
+        set_state(END);
+        return 0;
+    } else {
+        //fprintf(stderr, "increment complete %lu %lu.", rx_block, completed_blocks);
+        return 1;
+    }
+}
+
+// 1 if position was incremented
+// 0 if position was not incremented
+static unsigned char read_next_block() {
+    signed int buffer_size = read_blocks - completed_blocks;
+
+    if ((buffer_size < MAX_BUFFERED_SEND_PACKETS) && state != ABORT) {
+        current_blocks++;
+        set_sector(disk, current_blocks + start_sector);
+        //fprintf(stderr, "increment position %lu %lu %lu %d.", read_blocks, current_blocks, completed_blocks, buffer_size);
+        return 1;
+    } else {
+        //fprintf(stderr, "no increment position %lu %lu %lu %d.\n", read_blocks, current_blocks, completed_blocks, buffer_size);
+        return 0;
+    }
+}
+
+// 1 if position was set
+// 0 if position was not set
+static unsigned char set_position(unsigned long new_position) {
+    SendPacket* tx_packet;
+    unsigned long tx_block_num;
+
+    tx_packet = tx_packets[new_position % MAX_BUFFERED_SEND_PACKETS];
+    tx_block_num = 0;
+    tx_block_num |= (unsigned long)tx_packet->block0 << 24;
+    tx_block_num |= (unsigned long)tx_packet->block1 << 16;
+    tx_block_num |= (unsigned int)tx_packet->block2 << 8;
+    tx_block_num |= tx_packet->block3;
+
+    if (tx_block_num != new_position) {
+        fprintf(stderr, "\nBuffer Overload, hash will be incorrect. Have: %lu Need: %lu\n", tx_block_num, rx_packet->block_num);
+        exit(1);
+        return 0;
+    } else {
+        current_blocks = new_position;
+        set_sector(disk, new_position + start_sector);
+        //fprintf(stderr, "set position %lu.", new_position);
+    }
+    return 1;
+}
+
+static void set_state(ProtocolState new_state) {
+    if (state != ABORT || new_state == END) {
+        state = new_state;
+    }
+}
+
+//fprintf(stderr, ".N, %lu.", rx_packet->block_num);
 /**
  * Wait for ack/nak/cancel from receiver
  */
 void xmodem_state_check(void)
 {
-    if (get_receive_packet()) {
-        switch (rx_packet->response_code) {
-        case ACK:
-            fprintf(stderr, "A");
-            if (disk->current_sector >= disk->total_sectors) {
-                state = END;
-                fprintf(stderr, "\nTransfer complete!");
-                update_time_elapsed(disk, start_sector);
-                print_status(disk);
-            }
-            break;
-        case NAK:
-            set_sector(disk, (unsigned long)start_sector + rx_packet->block_num); // reset to the nak'd block
+    if (receive_packets()) {
+        if (rx_packet->response_code == NAK) {
+            //fprintf(stderr, "\n.N, %lu %lu %lu.", rx_packet->block_num, current_blocks, completed_blocks);
             fprintf(stderr, "N");
-            state = SEND;
-            break;
-        default:
-            fprintf(stderr, "Unknown Byte: 0x%02X: %c", rx_packet->response_code, rx_packet->response_code);
+        } else if (rx_packet->response_code == ACK) {
+            //fprintf(stderr, "\n.A, %lu %lu %lu.", rx_packet->block_num, current_blocks, completed_blocks);
+            fprintf(stderr, "A");
+        } else if (rx_packet->response_code == SYN) {
+            //fprintf(stderr, "\n.S, %lu %lu %lu.", rx_packet->block_num, current_blocks, completed_blocks);
+            fprintf(stderr, "S");
         }
-    } else if ((signed long)disk->current_sector - start_sector - rx_packet->block_num <= MAX_BUFFERED_BLOCKS / 2) {
-        // send more data
-        state = SEND;
+
+        //if (resent) {
+        //    // reset position to response packet after a resend
+        //    fprintf(stderr, "resent %lu %lu %lu %lu.\n", read_blocks, current_blocks, completed_blocks, rx_packet->block_num);
+//
+        //    if(set_position(rx_packet->block_num, rx_packet->response_code)) {
+        //        set_state(SEND);
+        //    } else {
+        //        set_state(ABORT);
+        //    }
+        //    resent = 0;
+        //}
+
+        if (rx_packet->response_code == SYN) {
+            if(set_position(rx_packet->block_num)) {
+                set_state(SEND);
+            } else {
+                set_state(ABORT);
+            }
+            set_complete(rx_packet->block_num);
+        }
+        
+        if (rx_packet->block_num < current_blocks) {
+            if (rx_packet->response_code == NAK) {
+                if(set_position(rx_packet->block_num)) {
+                    set_state(SEND);
+                } else {
+                    set_state(ABORT);
+                }
+            }
+            if (rx_packet->response_code == ACK) {
+                if (set_complete(rx_packet->block_num)) {
+                    if (read_next_block()) {
+                        set_state(SEND);
+                    } else {
+                        set_state(CHECK);
+                    }
+                }
+            }
+        } else if (rx_packet->block_num == current_blocks) {
+            if (rx_packet->response_code == NAK) {
+                set_state(SEND);
+            }
+            if (rx_packet->response_code == ACK) {
+                if (set_complete(rx_packet->block_num)) {
+                    if (read_next_block()) {
+                        set_state(SEND);
+                    } else {
+                        set_state(CHECK);
+                    }
+                }
+            }
+        } else {
+            // rx_packet > current_blocks
+            if (rx_packet->response_code == NAK) {
+                if(set_position(rx_packet->block_num)) {
+                    set_state(SEND);
+                } else {
+                    set_state(ABORT);
+                }
+            }
+            if (rx_packet->response_code == ACK) {
+                if(set_position(rx_packet->block_num)) {
+                    set_state(SEND);
+                } else {
+                    set_state(ABORT);
+                }
+            }
+        }
     } else {
-        // buffering
+        // no packet received
+        if (read_next_block()) {
+            //fprintf(stderr, "no next block");
+            set_state(SEND);
+        } else {
+            if (resend_timeout > RESEND_TIMEOUT_MS) {
+                set_state(SEND);
+                resend_timeout = 0;
+                resent = 1;
+            } else {
+                delay(1);
+                resend_timeout++;
+                set_state(CHECK);
+            }
+        }
     }
+
+/*
+has packet?
+  yes
+    response block < current block
+      NAK
+        reset position to response
+        send block
+      ACK
+        increment complete
+        increment position
+        send block
+    response block == current block
+      NAK
+        send block
+      ACK
+        increment position
+        send block
+    response block > current block
+      NAK
+        reset position
+        send block
+      ACK
+        reset position
+        send block
+  no
+    increment block
+      0 state = SEND
+      1 state = CHECK
+
+
+*/
+    
 }

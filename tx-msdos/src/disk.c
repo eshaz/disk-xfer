@@ -31,16 +31,9 @@ static char free_read_log(Disk* disk, ReadLog* rl)
     return 0;
 }
 
-static char is_current_sector_in_read_log(Disk* disk, ReadLog* rl)
-{
-    if (rl->sector == disk->current_sector)
-        return 1;
-    return 0;
-}
-
 void add_read_log(Disk* disk, unsigned char retry_count)
 {
-    ReadLog* rl = malloc(sizeof(ReadLog));
+    ReadLog* rl = malloc_with_check(sizeof(ReadLog));
     rl->sector = disk->current_sector;
     rl->status_code = disk->status_code;
     rl->status_msg = disk->status_msg;
@@ -71,21 +64,13 @@ void print_read_logs(Disk* disk)
     iterate_read_logs(disk, &print_read_log);
 }
 
-ReadLog* get_read_log_for_current_sector(Disk* disk)
-{
-    ReadLog* rl = iterate_read_logs(disk, &is_current_sector_in_read_log);
-    if (rl && rl->sector == disk->current_sector)
-        return rl;
-    return (ReadLog*)NULL; // null pointer if not found
-}
-
 /**
  * Disk data structure
  */
 
 Disk* create_disk()
 {
-    Disk* disk = malloc(sizeof(Disk));
+    Disk* disk = malloc_with_check(sizeof(Disk));
     // device information
     disk->device_id = 0x80; // default to C: drive
     disk->geometry.c = 0;
@@ -116,7 +101,7 @@ void free_disk(Disk* disk)
 void set_sector(Disk* disk, unsigned long sector)
 {
     if (sector > disk->total_sectors) {
-        fprintf(stderr, "\nFATAL: Cannot set sector to %lu which is beyond drive limit %lu", sector, disk->total_sectors);
+        //fprintf(stderr, "\nFATAL: Cannot set sector to %lu which is beyond drive limit %lu", sector, disk->total_sectors);
         return;
     }
     disk->position.c = sector / (disk->geometry.s * (disk->geometry.h + 1));

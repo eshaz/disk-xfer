@@ -46,7 +46,7 @@
 #include <stdio.h>
 
 /* clang-format off */
-const unsigned long crc32_tab[] = {
+const unsigned int crc32_tab[] = {
 	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f,
 	0xe963a535, 0x9e6495a3,	0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
 	0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91, 0x1db71064, 0x6ab020f2,
@@ -99,30 +99,30 @@ const unsigned long crc32_tab[] = {
  * of this function that's actually used in the kernel can be found
  * in sys/libkern.h, where it can be inlined.
  */
-unsigned long crc32(const void* buf, unsigned long size)
+unsigned int crc32(const void* buf, unsigned int size)
 {
     const unsigned char* p = buf;
-    unsigned long crc;
+    unsigned int crc;
 
-    crc = (unsigned long)0xffffffff;
+    crc = (unsigned int)0xffffffff;
     while (size--)
-        crc = (unsigned long)crc32_tab[(unsigned long)((unsigned long)crc ^ *p++) & 0xFF] ^ ((unsigned long)crc >> 8);
-    return (unsigned long)crc ^ 0xffffffff;
+        crc = (unsigned int)crc32_tab[(unsigned int)((unsigned int)crc ^ *p++) & 0xFF] ^ ((unsigned int)crc >> 8);
+    return (unsigned int)crc ^ 0xffffffff;
 }
 
-unsigned char check_crc32(const void* buf, unsigned long size, const void* expected_crc_buf)
+unsigned char check_crc32(const void* buf, unsigned int size, const void* expected_crc_buf)
 {
     const unsigned char* p = expected_crc_buf;
-    unsigned long expected_crc;
-    unsigned long actual_crc;
+    unsigned int expected_crc;
+    unsigned int actual_crc;
 
     actual_crc = crc32(buf, size);
 
     expected_crc = 0;
-    expected_crc |= (unsigned long)p[0] << 24;
-    expected_crc |= (unsigned long)p[1] << 16;
+    expected_crc |= (unsigned int)p[0] << 24;
+    expected_crc |= (unsigned int)p[1] << 16;
     expected_crc |= (unsigned int)p[2] << 8;
     expected_crc |= p[3];
 
-    return expected_crc != actual_crc;
+    return expected_crc == actual_crc;
 }
