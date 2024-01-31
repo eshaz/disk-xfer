@@ -101,7 +101,7 @@ void free_disk(Disk* disk)
 void set_sector(Disk* disk, unsigned long sector)
 {
     if (sector > disk->total_sectors) {
-        //fprintf(stderr, "\nFATAL: Cannot set sector to %lu which is beyond drive limit %lu", sector, disk->total_sectors);
+        // fprintf(stderr, "\nFATAL: Cannot set sector to %lu which is beyond drive limit %lu", sector, disk->total_sectors);
         return;
     }
     disk->position.c = sector / (disk->geometry.s * (disk->geometry.h + 1));

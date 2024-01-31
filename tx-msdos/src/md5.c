@@ -78,7 +78,7 @@ static const unsigned char fillbuf[64] = { 0x80, 0 /* , 0, 0, ...  */ };
 
 /* Initialize structure containing state of computation.
    (RFC 1321, 3.3: Step 3)  */
-#pragma code_seg ( "utils" ) ;
+#pragma code_seg("utils");
 void md5_init_ctx(md5_ctx* ctx)
 {
     memset(ctx, 0, sizeof(ctx));
@@ -96,7 +96,7 @@ void md5_init_ctx(md5_ctx* ctx)
 
    IMPORTANT: On some systems it is required that RESBUF is correctly
    aligned for a 32 bits value.  */
-#pragma code_seg ( "utils" ) ;
+#pragma code_seg("utils");
 void* md5_finish_ctx(md5_ctx* ctx, void* resbuf)
 {
     /* Take yet unprocessed bytes into account.  */
@@ -148,10 +148,10 @@ void* md5_finish_ctx(md5_ctx* ctx, void* resbuf)
 
 /* Process LEN bytes of BUFFER, accumulating context into CTX.
    It is assumed that LEN % 64 == 0.  */
-#pragma code_seg ( "utils" ) ;
+#pragma code_seg("utils");
 void md5_process_block(const void* buffer, size_t len, md5_ctx* ctx)
 {
-    md5_uint32 correct_words[16] = {0};
+    md5_uint32 correct_words[16] = { 0 };
     const md5_uint32* words = buffer;
     size_t nwords = len / sizeof(md5_uint32);
     const md5_uint32* endp = words + nwords;

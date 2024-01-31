@@ -36,7 +36,7 @@ Disk* disk;
 unsigned long completed_blocks = 0;
 unsigned long current_blocks = 0;
 unsigned long read_blocks = 0;
-unsigned char hash[16] = {0};
+unsigned char hash[16] = { 0 };
 md5_ctx* md5;
 
 unsigned char* rx_buffer;
@@ -97,7 +97,7 @@ void clean_up()
     unsigned char i;
     for (i = 0; i < MAX_BUFFERED_SEND_PACKETS; i++)
         free(tx_packets[i]);
-    
+
     free(rx_packet);
     free_disk(disk);
     free(retry_bits);
@@ -207,55 +207,8 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     }
 }
 
-static unsigned char receive_packets()
+static void flush_receive_buffer()
 {
-    unsigned long rx_block_num;
-    unsigned char i;
-    unsigned char bytes_read = 0;
-
-    // fill the buffer
-    read:
-    while (rx_buffer_pos < rx_buffer_size) {
-        bytes_read = int14_read_block(rx_buffer + rx_buffer_pos, rx_buffer_size - rx_buffer_pos);
-        if (bytes_read == 0)
-            // not enough data to form a packet
-            return 0;
-
-        rx_buffer_pos += bytes_read;
-    }
-
-    if ((rx_buffer[0] == ACK || rx_buffer[0] == NAK || rx_buffer[0] == SYN) && check_crc32(rx_buffer, 5, rx_buffer + 5)) {
-        // clear the buffer for the next read
-        rx_buffer_pos = 0;
-        
-        // synced on valid packet
-        rx_block_num = 0;
-        rx_block_num |= (unsigned long)rx_buffer[1] << 24;
-        rx_block_num |= (unsigned long)rx_buffer[2] << 16;
-        rx_block_num |= (unsigned int)rx_buffer[3] << 8;
-        rx_block_num |= rx_buffer[4];
-
-        rx_packet->response_code = rx_buffer[0];
-        rx_packet->block_num = rx_block_num;
-    
-        //if (rx_packet->block_num < completed_blocks) {
-            //skip
-        //} else {
-            return 1;
-        //}
-    } else {
-        // continue syncing
-        for (i = 1; i < rx_buffer_size; i++)
-            rx_buffer[i - 1] = rx_buffer[i];
-
-        rx_buffer_pos--;
-        goto read;
-    }
-
-    return 0;
-}
-
-static void flush_receive_buffer() {
     while (int14_data_waiting())
         int14_read_byte();
 }
@@ -326,7 +279,6 @@ void xmodem_state_send(void)
     buf = &(tx_packet->data);
 
     // only read this block if we don't have it buffered
-    // validate the block checksum so uninitialized blocks are not considered buffered
     if (tx_packet_current_block != current_packet_block) {
         // read the data
         read_error = int13_read_sector(disk, buf);
@@ -389,6 +341,7 @@ void xmodem_state_send(void)
                 update_read_status(read_count);
             }
 
+            // clear out any packets received while retrying
             flush_receive_buffer();
         }
 
@@ -404,16 +357,11 @@ void xmodem_state_send(void)
         tx_packet->crc2 = ((unsigned long)calced_crc >> 8) & 0xff;
         tx_packet->crc3 = calced_crc & 0xff;
 
-        md5_process_block(
-            tx_packet->data,
-            sector_size,
-            md5
-        );
-
         if (read_blocks > current_packet_block) {
             fprintf(stderr, "\nFATAL: Re-reading a block, hash will be incorrect. Read %lu. Rereading %lu.", read_blocks, current_packet_block);
             set_state(END);
         } else {
+            md5_process_block(tx_packet->data, sector_size, md5);
             read_blocks++;
         }
     }
@@ -429,33 +377,33 @@ void xmodem_state_send(void)
         }
     }
 
-    //fprintf(stderr, "sent %lu.", current_packet_block);
+    // successful send
     resend_timeout = 0;
-
     set_state(CHECK);
 }
 
 // 1 if there are more blocks to complete
-// 0 if everything is complete
-static unsigned char set_complete(unsigned long rx_block) {
+// 0 if everything is complete (no more blocks left to read)
+static unsigned char set_complete_block(unsigned long rx_block)
+{
     completed_blocks = rx_block;
 
-    if ((unsigned long) completed_blocks + start_sector >= disk->total_sectors) {
+    if ((unsigned long)completed_blocks + start_sector >= disk->total_sectors) {
         fprintf(stderr, "\nTransfer complete!");
         set_state(END);
         return 0;
     } else {
-        //fprintf(stderr, "increment complete %lu %lu.", rx_block, completed_blocks);
+        // fprintf(stderr, "increment complete %lu %lu.", rx_block, completed_blocks);
         return 1;
     }
 }
 
 // 1 if position was set
-// 0 if position was not set
-static unsigned char set_position(unsigned long new_position) {
+// 0 if position was not set (a block was skiped)
+static unsigned char set_current_block(unsigned long new_position)
+{
     if (
-        new_position > (unsigned long)read_blocks + 1 
-    ) {
+        new_position > (unsigned long)read_blocks + 1) {
         fprintf(stderr, "\nFATAL: Cannot skip a block. Read: %lu Skipping: %lu", read_blocks, rx_packet->block_num);
         set_state(END);
         return 0;
@@ -468,113 +416,156 @@ static unsigned char set_position(unsigned long new_position) {
 }
 
 // 1 if position was incremented
-// 0 if position was not incremented
-static unsigned char read_next_block() {
+// 0 if position was not incremented (buffer being full)
+static unsigned char read_next_block()
+{
     signed int buffer_size = read_blocks - completed_blocks;
 
     if ((buffer_size < MAX_BUFFERED_SEND_PACKETS) && state != ABORT) {
         current_blocks++;
-        return set_position(current_blocks);
-        //fprintf(stderr, "increment position %lu %lu %lu %d.", read_blocks, current_blocks, completed_blocks, buffer_size);
+        return set_current_block(current_blocks);
+        // fprintf(stderr, "increment position %lu %lu %lu %d.", read_blocks, current_blocks, completed_blocks, buffer_size);
     } else {
-        //fprintf(stderr, "no increment position %lu %lu %lu %d.\n", read_blocks, current_blocks, completed_blocks, buffer_size);
+        // fprintf(stderr, "no increment position %lu %lu %lu %d.\n", read_blocks, current_blocks, completed_blocks, buffer_size);
         return 0;
     }
 }
 
-static void set_state(ProtocolState new_state) {
+static void set_state(ProtocolState new_state)
+{
     if (state != ABORT || new_state == END) {
         state = new_state;
     }
 }
 
-//fprintf(stderr, ".N, %lu.", rx_packet->block_num);
 /**
- * Wait for ack/nak/cancel from receiver
+ * Read incoming ACK / NAK / SYN packets
+ *
+ */
+static unsigned char receive_packets()
+{
+    unsigned long rx_block_num;
+    unsigned char i;
+    unsigned char bytes_read = 0;
+
+// fill the buffer
+read:
+    while (rx_buffer_pos < rx_buffer_size) {
+        bytes_read = int14_read_block(rx_buffer + rx_buffer_pos, rx_buffer_size - rx_buffer_pos);
+        if (bytes_read == 0)
+            // not enough data to form a packet
+            return 0;
+
+        rx_buffer_pos += bytes_read;
+    }
+
+    if (
+        (rx_buffer[0] == ACK || rx_buffer[0] == NAK || rx_buffer[0] == SYN) && // valid packet
+        check_crc32(rx_buffer, 5, rx_buffer + 5) // valid crc
+    ) {
+        // clear the buffer for the next read
+        rx_buffer_pos = 0;
+
+        // synced on valid packet
+        rx_block_num = 0;
+        rx_block_num |= (unsigned long)rx_buffer[1] << 24;
+        rx_block_num |= (unsigned long)rx_buffer[2] << 16;
+        rx_block_num |= (unsigned int)rx_buffer[3] << 8;
+        rx_block_num |= rx_buffer[4];
+
+        rx_packet->response_code = rx_buffer[0];
+        rx_packet->block_num = rx_block_num;
+
+        return 1;
+    } else {
+        // continue syncing
+        for (i = 1; i < rx_buffer_size; i++)
+            rx_buffer[i - 1] = rx_buffer[i];
+
+        rx_buffer_pos--;
+        goto read;
+    }
+
+    return 0;
+}
+
+/**
+ * Synchronize data stream using sliding window
+ * ACK -> Block is acknoledged and saved to disk on the receiver.
+ * NAK -> Block is not acknowledged and needs to be resent.
+ * SYN -> Data is out of sync, SYN block will indicate the last ACK'd block
+ *        so the data can be re-wound, re-sent, or fast-forwarded to this block.
  */
 void xmodem_state_check(void)
 {
     if (receive_packets()) {
-        if (rx_packet->response_code == NAK) {
-            //fprintf(stderr, "\n.N, %lu %lu %lu.", rx_packet->block_num, current_blocks, completed_blocks);
-            fprintf(stderr, "N");
-        } else if (rx_packet->response_code == ACK) {
-            //fprintf(stderr, "\n.A, %lu %lu %lu.", rx_packet->block_num, current_blocks, completed_blocks);
+        // packet recieved
+        if (rx_packet->response_code == ACK) {
             fprintf(stderr, "A");
-        } else if (rx_packet->response_code == SYN) {
-            //fprintf(stderr, "\n.S, %lu %lu %lu.", rx_packet->block_num, current_blocks, completed_blocks);
-            fprintf(stderr, "S");
-        }
 
-        if (rx_packet->response_code == SYN) {
-            if(set_position(rx_packet->block_num+1)) {
-                if (set_complete(rx_packet->block_num)) {
+            // record ACK'd block as complete
+            if (set_complete_block(rx_packet->block_num)) {
+                if (rx_packet->block_num <= current_blocks) {
+                    if (read_next_block()) {
+                        // buffer is not full, send next block
+                        set_state(SEND);
+                    } else {
+                        // buffer is full, don't send any more
+                        set_state(CHECK);
+                    }
+                } else {
+                    // rx_packet > current_blocks
+                    // resend this block _without_ checking the buffer since, this and prior blocks were previously ACK'd.
+                    if (set_current_block(rx_packet->block_num)) {
+                        set_state(SEND);
+                    } else {
+                        // this block will result in a skipped block
+                        set_state(ABORT);
+                    }
+                }
+            } else {
+                // no more blocks to send
+                set_state(END);
+            }
+        } else if (rx_packet->response_code == SYN) {
+            fprintf(stderr, "S");
+
+            // send the next block _without_ checking the buffer since this block was ACK'd
+            if (set_current_block(rx_packet->block_num + 1)) {
+                // record this block as complete
+                if (set_complete_block(rx_packet->block_num)) {
+                    // send the next block
                     set_state(SEND);
+                } else {
+                    set_state(END);
                 }
             } else {
                 set_state(ABORT);
             }
-        }
-        
-        if (rx_packet->block_num < current_blocks) {
-            if (rx_packet->response_code == NAK) {
-                if(set_position(rx_packet->block_num)) {
-                    set_state(SEND);
-                } else {
-                    set_state(ABORT);
-                }
-            }
-            if (rx_packet->response_code == ACK) {
-                if (set_complete(rx_packet->block_num)) {
-                    if (read_next_block()) {
-                        set_state(SEND);
-                    } else {
-                        set_state(CHECK);
-                    }
-                }
-            }
-        } else if (rx_packet->block_num == current_blocks) {
-            if (rx_packet->response_code == NAK) {
+        } else { // if (rx_packet->response_code == NAK) {
+            fprintf(stderr, "N");
+
+            // set the current block to the one received,
+            if (set_current_block(rx_packet->block_num)) {
+                // so it can be resent
                 set_state(SEND);
-            }
-            if (rx_packet->response_code == ACK) {
-                if (set_complete(rx_packet->block_num)) {
-                    if (read_next_block()) {
-                        set_state(SEND);
-                    } else {
-                        set_state(CHECK);
-                    }
-                }
-            }
-        } else {
-            // rx_packet > current_blocks
-            if (rx_packet->response_code == NAK) {
-                if(set_position(rx_packet->block_num)) {
-                    set_state(SEND);
-                } else {
-                    set_state(ABORT);
-                }
-            }
-            if (rx_packet->response_code == ACK) {
-                if(set_position(rx_packet->block_num)) {
-                    if (set_complete(rx_packet->block_num)) {
-                        set_state(SEND);
-                    }
-                } else {
-                    set_state(ABORT);
-                }
+            } else {
+                set_state(ABORT);
             }
         }
     } else {
         // no packet received
         if (read_next_block()) {
-            //fprintf(stderr, "no next block");
+            // buffer is not full, send more data
             set_state(SEND);
         } else {
+            // buffer is full,
             if (resend_timeout > RESEND_TIMEOUT_MS) {
+                // checked for packets, but nothing was received, resend the last packet
                 set_state(SEND);
                 resend_timeout = 0;
             } else {
+                // continue to check for more packets before resending
                 delay(1);
                 resend_timeout++;
                 set_state(CHECK);

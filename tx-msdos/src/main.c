@@ -8,14 +8,14 @@
  * Licensed under GPL Version 3.0
  */
 
-#include "xm-send.h"
 #include "md5.h"
 #include "utils.h"
+#include "xm-send.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#pragma code_seg ( "utils" ) ;
+#pragma code_seg("utils");
 static char atoul(char* in, unsigned long* out)
 {
     char* p;
@@ -28,11 +28,12 @@ static char atoul(char* in, unsigned long* out)
     return 0;
 }
 
-#pragma code_seg ( "utils" ) ;
-static int verify_md5() {
+#pragma code_seg("utils");
+static int verify_md5()
+{
     const unsigned char data[64] = "This sentence should be exactly (64) sixty four bytes in length.";
-    const unsigned char expected[16] = {0x25,0xb1,0x60,0x07,0x88,0x8d,0x2d,0x3c,0x29,0x5a,0x24,0x1e,0x53,0xf9,0xb6,0x7c};
-    unsigned char actual[16] = {0};
+    const unsigned char expected[16] = { 0x25, 0xb1, 0x60, 0x07, 0x88, 0x8d, 0x2d, 0x3c, 0x29, 0x5a, 0x24, 0x1e, 0x53, 0xf9, 0xb6, 0x7c };
+    unsigned char actual[16] = { 0 };
     md5_ctx* md5 = malloc_with_check(sizeof(md5_ctx));
 
     md5_init_ctx(md5);
@@ -60,7 +61,8 @@ int main(int argc, char* argv[])
         fprintf(stderr, "\n* [baud]         `115200` baud rate to set for COM1");
         return 1;
     }
-    if (verify_md5()) fprintf(stderr, "WARN: MD5 hashing does not work with this build!\n");
+    if (verify_md5())
+        fprintf(stderr, "WARN: MD5 hashing does not work with this build!\n");
     xmodem_send(start_sector, baud);
     clean_up();
 

@@ -1,33 +1,36 @@
 !define BLANK ""
 INSTRUCTION_SET=-2 # 80286
-OPTIMIZATION=-osbhlsp
+OPTIMIZATION=-osbhlp
+
+md5.obj : src\md5.c .AUTODEPEND
+ *wcc src\md5.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -mc
 
 disk.obj : src\disk.c .AUTODEPEND
- *wcc src\disk.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -ms
+ *wcc src\disk.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -mc
 
 utils.obj : src\utils.c .AUTODEPEND
- *wcc src\utils.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -ms
+ *wcc src\utils.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -mc
 
 int13.obj : src\int13.c .AUTODEPEND
- *wcc src\int13.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -ms
+ *wcc src\int13.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -mc
 
 int14.obj : src\int14.c .AUTODEPEND
- *wcc src\int14.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
+ *wcc src\int14.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -mc
 
 int1a.obj : src\int1a.c .AUTODEPEND
- *wcc src\int1a.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
+ *wcc src\int1a.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -mc
 
 crc.obj : src\crc.c .AUTODEPEND
- *wcc src\crc.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
+ *wcc src\crc.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -mc
 
 xm-send.obj : src\xm-send.c .AUTODEPEND
- *wcc src\xm-send.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
+ *wcc src\xm-send.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -mc
 
 main.obj : src\main.c .AUTODEPEND
- *wcc src\main.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -ms
+ *wcc src\main.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -bt=dos -fo=.obj -mc
 
-tx.exe : disk.obj utils.obj int13.obj int14.obj int1a.obj main.obj crc.obj xm-send.obj .AUTODEPEND
- @%write tx.lk1 FIL disk.obj,utils.obj,int13.obj,int14.obj,int1a.obj,main.obj,crc.obj,xm-send.obj
+tx.exe : md5.obj disk.obj utils.obj int13.obj int14.obj int1a.obj main.obj crc.obj xm-send.obj .AUTODEPEND
+ @%write tx.lk1 FIL md5.obj,disk.obj,utils.obj,int13.obj,int14.obj,int1a.obj,main.obj,crc.obj,xm-send.obj
  @%append tx.lk1 
- *wlink name tx sys dos op m libf cstart_t op maxe=25 op q op symf @tx.lk1
+ *wlink name tx sys dos op m libf cstart_t op maxe=10 op q op symf op DOSSEG op STACK=512 @tx.lk1
 

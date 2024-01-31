@@ -1,9 +1,9 @@
 #ifndef MD5_H
 #define MD5_H
 
-#include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,7 +14,7 @@
 /* md5.h - Declaration of functions and data types used for MD5 sum
    computing library functions. */
 
-//typedef unsigned long size_t;
+// typedef unsigned long size_t;
 typedef unsigned long md5_uint32;
 
 /* Structure to save state of computation between the single steps.  */
