@@ -46,7 +46,6 @@ unsigned char rx_buffer_pos;
 unsigned char is_fossil = 0;
 unsigned int abort_timeout = 0;
 unsigned int resend_timeout = 0;
-unsigned char resent = 0;
 
 /**
  * 1   SOH
@@ -411,7 +410,12 @@ void xmodem_state_send(void)
             md5
         );
 
-        read_blocks++;
+        if (read_blocks > current_packet_block) {
+            fprintf(stderr, "\nFATAL: Re-reading a block, hash will be incorrect. Read %lu. Rereading %lu.", read_blocks, current_packet_block);
+            set_state(END);
+        } else {
+            read_blocks++;
+        }
     }
 
     if (is_fossil) {
@@ -446,6 +450,23 @@ static unsigned char set_complete(unsigned long rx_block) {
     }
 }
 
+// 1 if position was set
+// 0 if position was not set
+static unsigned char set_position(unsigned long new_position) {
+    if (
+        new_position > (unsigned long)read_blocks + 1 
+    ) {
+        fprintf(stderr, "\nFATAL: Cannot skip a block. Read: %lu Skipping: %lu", read_blocks, rx_packet->block_num);
+        set_state(END);
+        return 0;
+    } else {
+        current_blocks = new_position;
+        set_sector(disk, new_position + start_sector);
+    }
+
+    return 1;
+}
+
 // 1 if position was incremented
 // 0 if position was not incremented
 static unsigned char read_next_block() {
@@ -453,38 +474,12 @@ static unsigned char read_next_block() {
 
     if ((buffer_size < MAX_BUFFERED_SEND_PACKETS) && state != ABORT) {
         current_blocks++;
-        set_sector(disk, current_blocks + start_sector);
+        return set_position(current_blocks);
         //fprintf(stderr, "increment position %lu %lu %lu %d.", read_blocks, current_blocks, completed_blocks, buffer_size);
-        return 1;
     } else {
         //fprintf(stderr, "no increment position %lu %lu %lu %d.\n", read_blocks, current_blocks, completed_blocks, buffer_size);
         return 0;
     }
-}
-
-// 1 if position was set
-// 0 if position was not set
-static unsigned char set_position(unsigned long new_position) {
-    SendPacket* tx_packet;
-    unsigned long tx_block_num;
-
-    tx_packet = tx_packets[new_position % MAX_BUFFERED_SEND_PACKETS];
-    tx_block_num = 0;
-    tx_block_num |= (unsigned long)tx_packet->block0 << 24;
-    tx_block_num |= (unsigned long)tx_packet->block1 << 16;
-    tx_block_num |= (unsigned int)tx_packet->block2 << 8;
-    tx_block_num |= tx_packet->block3;
-
-    if (tx_block_num != new_position) {
-        fprintf(stderr, "\nBuffer Overload, hash will be incorrect. Have: %lu Need: %lu\n", tx_block_num, rx_packet->block_num);
-        exit(1);
-        return 0;
-    } else {
-        current_blocks = new_position;
-        set_sector(disk, new_position + start_sector);
-        //fprintf(stderr, "set position %lu.", new_position);
-    }
-    return 1;
 }
 
 static void set_state(ProtocolState new_state) {
@@ -511,25 +506,14 @@ void xmodem_state_check(void)
             fprintf(stderr, "S");
         }
 
-        //if (resent) {
-        //    // reset position to response packet after a resend
-        //    fprintf(stderr, "resent %lu %lu %lu %lu.\n", read_blocks, current_blocks, completed_blocks, rx_packet->block_num);
-//
-        //    if(set_position(rx_packet->block_num, rx_packet->response_code)) {
-        //        set_state(SEND);
-        //    } else {
-        //        set_state(ABORT);
-        //    }
-        //    resent = 0;
-        //}
-
         if (rx_packet->response_code == SYN) {
-            if(set_position(rx_packet->block_num)) {
-                set_state(SEND);
+            if(set_position(rx_packet->block_num+1)) {
+                if (set_complete(rx_packet->block_num)) {
+                    set_state(SEND);
+                }
             } else {
                 set_state(ABORT);
             }
-            set_complete(rx_packet->block_num);
         }
         
         if (rx_packet->block_num < current_blocks) {
@@ -573,7 +557,9 @@ void xmodem_state_check(void)
             }
             if (rx_packet->response_code == ACK) {
                 if(set_position(rx_packet->block_num)) {
-                    set_state(SEND);
+                    if (set_complete(rx_packet->block_num)) {
+                        set_state(SEND);
+                    }
                 } else {
                     set_state(ABORT);
                 }
@@ -588,7 +574,6 @@ void xmodem_state_check(void)
             if (resend_timeout > RESEND_TIMEOUT_MS) {
                 set_state(SEND);
                 resend_timeout = 0;
-                resent = 1;
             } else {
                 delay(1);
                 resend_timeout++;
@@ -596,37 +581,4 @@ void xmodem_state_check(void)
             }
         }
     }
-
-/*
-has packet?
-  yes
-    response block < current block
-      NAK
-        reset position to response
-        send block
-      ACK
-        increment complete
-        increment position
-        send block
-    response block == current block
-      NAK
-        send block
-      ACK
-        increment position
-        send block
-    response block > current block
-      NAK
-        reset position
-        send block
-      ACK
-        reset position
-        send block
-  no
-    increment block
-      0 state = SEND
-      1 state = CHECK
-
-
-*/
-    
 }
