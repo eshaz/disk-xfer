@@ -403,7 +403,9 @@ static unsigned char set_complete_block(unsigned long rx_block)
 static unsigned char set_current_block(unsigned long new_position)
 {
     if (
-        new_position > (unsigned long)read_blocks + 1) {
+        new_position > (unsigned long)read_blocks + 1 && // skip a block
+        read_blocks + start_sector < disk->total_sectors // not complete
+    ) {
         fprintf(stderr, "\nFATAL: Cannot skip a block. Read: %lu Skipping: %lu", read_blocks, rx_packet->block_num);
         set_state(END);
         return 0;
