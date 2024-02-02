@@ -31,10 +31,13 @@ unsigned long int1a_get_system_time()
     unsigned long ticks;
 
     regs.h.ah = 0x00;
+    regs.h.al = 0;
+    regs.w.cx = 0;
+    regs.w.dx = 0;
     int86(0x1A, &regs, &regs);
 
-    if (regs.w.ax & 0xff)
-        ++days;
+    if (regs.h.al == 1)
+        days++;
     ticks = regs.w.cx;
     ticks <<= 16;
     ticks |= regs.w.dx;
