@@ -185,9 +185,13 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
             if (state == START) {
                 set_state(END);
                 break;
-            } else if (abort_timeout < ABORT_TIMEOUT_MS && read_blocks != completed_blocks) {
+            } else if (
+                abort_timeout < ABORT_TIMEOUT_MS && // aborts timed out
+                read_blocks - completed_blocks != 1 // all blocks are sent
+            ) {
                 delay(1);
                 abort_timeout++;
+                // continue to check to send buffered blocks
             } else {
                 set_state(END);
                 break;
