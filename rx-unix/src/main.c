@@ -9,6 +9,7 @@
 #include "crc.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h> // needed for memset
@@ -26,22 +27,22 @@ typedef enum _state { START,
 #define BLOCK_SIZE 521 // XMODEM-CRC block overhead.
 #define RX_BUFFER_SIZE BLOCK_SIZE * 16 // max size of tio buffer
 #define TX_BUFFER_SIZE 9 // size of the response packet
-#define BAUD_RATE B115200 // connection baud rate
-#define READ_DELAY_US (115200 / 9) // amount of time to sleep between reads (allow the serial port buffer to fill)
 
 ProtocolState state = START;
 int serial_read_fd;
 int serial_write_fd;
-int outfile_fd;
+FILE* outfile_fd;
 unsigned char b;
 unsigned int block_num = 0;
 unsigned int acked_block = 0;
+unsigned int baud_rate;
 
 unsigned char* rx_buffer;
 unsigned int rx_buffer_pos;
 unsigned char* tx_buffer;
 struct winsize w;
 unsigned int current_col = 0;
+unsigned int read_delay_us = 0;
 
 /**
  * Send byte
@@ -69,10 +70,10 @@ static void send_block(unsigned char response, unsigned int block)
     tx_buffer[7] = ((unsigned int)crc >> 8) & 0xff;
     tx_buffer[8] = crc & 0xff;
 
-    fprintf(stderr, "send ");
-    for (i = 0; i < 9; i++)
-        fprintf(stderr, "%02X ", tx_buffer[i]);
-    fprintf(stderr, "\n");
+    // fprintf(stderr, "send ");
+    // for (i = 0; i < 9; i++)
+    //     fprintf(stderr, "%02X ", tx_buffer[i]);
+    // fprintf(stderr, "\n");
 
     write(serial_write_fd, tx_buffer, TX_BUFFER_SIZE);
 }
@@ -105,13 +106,18 @@ static void send_syn()
     print_block_status("S");
 }
 
-static void cleanup()
+static void cleanup(int signal)
 {
+    if (signal) {
+        fprintf(stderr, "\nSignal caught, cleaning up...\n");
+    }
     free(rx_buffer);
     free(tx_buffer);
-    close(outfile_fd);
+    fflush(outfile_fd);
+    fclose(outfile_fd);
     close(serial_read_fd);
     close(serial_write_fd);
+    exit(0);
 }
 
 /**
@@ -134,7 +140,7 @@ void xmodem_state_send(void)
     int bytes_read = -1;
     int data_to_pull = 0;
 
-    usleep(READ_DELAY_US);
+    usleep(read_delay_us);
     while (bytes_read != 0 && rx_buffer_pos < RX_BUFFER_SIZE) {
         bytes_read = read(serial_read_fd, rx_buffer + rx_buffer_pos, RX_BUFFER_SIZE - rx_buffer_pos);
 
@@ -143,7 +149,7 @@ void xmodem_state_send(void)
     }
 
     fprintf(stderr, "R\b");
-    //fprintf(stderr, "\nbytes read %u", i);
+    // fprintf(stderr, "\nbytes read %u", i);
 
     if (rx_buffer_pos == RX_BUFFER_SIZE) {
         fprintf(stderr, "Buffer full!\n");
@@ -155,7 +161,7 @@ void xmodem_state_send(void)
 static void handle_error(char* message)
 {
     fprintf(stderr, "%s %i %s\n", message, errno, strerror(errno));
-    cleanup();
+    cleanup(0);
     exit(1);
 }
 
@@ -164,17 +170,7 @@ static void handle_error(char* message)
  */
 void xmodem_write_block_to_disk(char* buf)
 {
-    char* data_ptr = &buf[5];
-    int bytes_written = 0;
-
-    bytes_written = write(outfile_fd, data_ptr, 512);
-
-    if (bytes_written < 0) {
-        handle_error("Write error! ");
-    }
-    if (bytes_written != 512) {
-        handle_error("All data was not written! ");
-    }
+    fwrite(&buf[5], 1, 512, outfile_fd);
 }
 
 /**
@@ -189,15 +185,15 @@ void xmodem_state_check(void)
     unsigned int rx_block_num;
     unsigned char crc_result;
 
-    //fprintf(stderr, "rx buffer start %u\n", rx_buffer_pos);
-    // align buffer
+    // fprintf(stderr, "rx buffer start %u\n", rx_buffer_pos);
+    //  align buffer
     while (rx_buffer_pos >= offset + BLOCK_SIZE) {
         buf = rx_buffer + offset;
 
         // search for valid packets on SOH
         if (buf[0] == 0x01) {
             crc_result = check_crc32(buf, BLOCK_SIZE - 4, buf + BLOCK_SIZE - 4);
-            
+
             rx_block_num = 0;
             rx_block_num |= (unsigned int)buf[1] << 24;
             rx_block_num |= (unsigned int)buf[2] << 16;
@@ -206,12 +202,12 @@ void xmodem_state_check(void)
 
             if (crc_result) {
                 // valid block
-                //fprintf(stderr, " rx block %u %u ", rx_block_num, block_num);
+                // fprintf(stderr, " rx block %u %u ", rx_block_num, block_num);
 
                 if (rx_block_num == block_num) {
                     // blocks are synced
                     send_ack();
-                    fprintf(stderr, " %u %u", rx_block_num, block_num);
+                    // fprintf(stderr, " %u %u", rx_block_num, block_num);
                     acked_block = block_num;
                     block_num++;
                     xmodem_write_block_to_disk(buf);
@@ -224,20 +220,20 @@ void xmodem_state_check(void)
                     } else {
                         send_syn();
                     }
-                    //fprintf(stderr, "%s syn %u %u", tx_buffer[0] == 0x06 ? "A" : "N", rx_block_num, block_num);
+                    // fprintf(stderr, "%s syn %u %u", tx_buffer[0] == 0x06 ? "A" : "N", rx_block_num, block_num);
                     offset += BLOCK_SIZE;
                 } else {
                     // rx_block_num < block_num
                     // catching up from previous NAKs
                     send_ack();
-                    //fprintf(stderr, " old %u %u", rx_block_num, block_num);
+                    // fprintf(stderr, " old %u %u", rx_block_num, block_num);
                     offset += BLOCK_SIZE;
                 }
             } else {
                 // probably aligned, sent NAK
                 if (rx_block_num == block_num) {
                     send_nak();
-                    //fprintf(stderr, " crc %u %u", rx_block_num, block_num);
+                    // fprintf(stderr, " crc %u %u", rx_block_num, block_num);
                 }
                 // increment to prevent resyncing on this block
                 offset++;
@@ -264,10 +260,8 @@ int xmodem_receive(char* filename)
 {
     unlink(filename);
 
-    outfile_fd = open(
-        filename,
-        O_CREAT | O_TRUNC | O_WRONLY | S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-    if (outfile_fd < 1) {
+    outfile_fd = fopen(filename, "wb");
+    if (outfile_fd == NULL) {
         handle_error("Failed to open file! ");
     }
 
@@ -293,7 +287,7 @@ int xmodem_receive(char* filename)
     }
 
     // We're done.
-    cleanup();
+    cleanup(0);
     return 0;
 }
 
@@ -314,8 +308,8 @@ int termio_init(char* serial_filename)
 
     serial_read_fd = open(serial_filename, O_RDONLY);
     serial_write_fd = open(serial_filename, O_WRONLY);
-    cfsetospeed(&tio, BAUD_RATE);
-    cfsetispeed(&tio, BAUD_RATE);
+    cfsetospeed(&tio, baud_rate);
+    cfsetispeed(&tio, baud_rate);
 
     tcsetattr(serial_read_fd, TCSANOW, &tio);
     tcsetattr(serial_write_fd, TCSANOW, &tio);
@@ -327,18 +321,56 @@ int termio_init(char* serial_filename)
  */
 void print_args(void)
 {
-    printf("rx /dev/ttySx destination_image_name.img\n");
+    printf("rx /dev/ttySx destination_image_name.img [baud_rate]\n");
 }
 
 int main(int argc, char* argv[])
 {
+    int baud;
+
+    signal(SIGINT, cleanup);
+
     ioctl(STDERR_FILENO, TIOCGWINSZ, &w);
-    // Display args if not provided.
-    if (argc != 3) {
+    if (argc == 4) {
+        baud = atoi(argv[3]);
+        /* clang-format off */
+        switch(baud) {
+            case 50: baud_rate = B50; break;
+            case 75: baud_rate = B75; break;
+            case 110: baud_rate = B110; break;
+            case 134: baud_rate = B134; break;
+            case 150: baud_rate = B150; break;
+            case 200: baud_rate = B200; break;
+            case 300: baud_rate = B300; break;
+            case 600: baud_rate = B600; break;
+            case 1200: baud_rate = B1200; break;
+            case 1800: baud_rate = B1800; break;
+            case 2400: baud_rate = B2400; break;
+            case 4800: baud_rate = B4800; break;
+            case 9600: baud_rate = B9600; break;
+            case 19200: baud_rate = B19200; break;
+            case 38400: baud_rate = B38400; break;
+            case 57600: baud_rate = B57600; break;
+            case 115200: baud_rate = B115200; break;
+            default:
+                fprintf(stderr, "\nWARN: Invalid baud rate supplied.");
+                baud = 115200;
+                baud_rate = B115200;
+                break;
+        }
+        /* clang-format on */
+    } else if (argc == 3) {
+        baud = 115200;
+        baud_rate = B115200;
+    } else {
         print_args();
         exit(1);
-    } else {
-        termio_init(argv[1]);
-        return xmodem_receive(argv[2]);
     }
+
+    fprintf(stderr, "\nUsing %d baud.\n", baud);
+    read_delay_us = baud / 9;
+
+    termio_init(argv[1]);
+    xmodem_receive(argv[2]);
+    exit(0);
 }
