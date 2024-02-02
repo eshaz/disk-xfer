@@ -314,47 +314,34 @@ static void print_report(Disk* disk, unsigned char* hash, unsigned long start_se
 #pragma code_seg("utils");
 void save_report(Disk* disk, unsigned char* hash, unsigned long start_sector)
 {
-    int fd = 0;
-    int stderr_copy = 0;
+    FILE* fd;
     int error = 0;
-    char path[1024];
+    char* path;
     update_time_elapsed(disk, start_sector);
 
     while (prompt_user("\nPress `s` to save a status report, any other key to quit?: ", 0, 's')) {
-
         fprintf(stderr, "\nEnter file path to save report: ");
-        scanf("\n%1023[^\n]", path);
+        path = malloc(256);
+        scanf("\n%255[^\n]", path);
 
-        fd = open(path,
-            O_WRONLY | O_CREAT | O_TRUNC | O_TEXT,
-            S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-
-        if (fd < 0) {
+        fd = freopen(path, "w", stderr);
+        if (fd == NULL) {
             fprintf(stderr, "\nUnable to open file");
             continue;
         }
 
-        stderr_copy = dup(2);
-        if (dup2(fd, 2) < 0) {
-            fprintf(stderr, "\nUnable to read from stderr");
-            break;
-        }
-
         print_report(disk, hash, start_sector);
-
-        if (dup2(stderr_copy, 2) < 0) {
-            fprintf(stderr, "\nUnable to replace stderr");
-            break;
-        }
-        error = close(fd);
-        close(stderr_copy);
+        fflush(fd);
+        error = fclose(fd);
 
         if (error) {
             fprintf(stderr, "\nError writing report. Try again?");
         } else {
+            free(path);
             return;
         }
     }
+    free(path);
     fprintf(stderr, "\nNot saving report.");
 }
 
