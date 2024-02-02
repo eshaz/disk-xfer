@@ -35,6 +35,7 @@ int serial_write_fd;
 int outfile_fd;
 unsigned char b;
 unsigned int block_num = 0;
+unsigned int acked_block = 0;
 
 unsigned char* rx_buffer;
 unsigned int rx_buffer_pos;
@@ -50,17 +51,17 @@ void xmodem_send_byte(unsigned char b)
     write(serial_write_fd, &b, 1);
 }
 
-static void send_block(unsigned char response)
+static void send_block(unsigned char response, unsigned int block)
 {
     unsigned int crc;
     char i;
     // ACK or NAK
     tx_buffer[0] = response;
     // current block number incrementing from first block recieved
-    tx_buffer[1] = ((unsigned int)block_num >> 24) & 0xff;
-    tx_buffer[2] = ((unsigned int)block_num >> 16) & 0xff;
-    tx_buffer[3] = ((unsigned int)block_num >> 8) & 0xff;
-    tx_buffer[4] = block_num & 0xff;
+    tx_buffer[1] = ((unsigned int)block >> 24) & 0xff;
+    tx_buffer[2] = ((unsigned int)block >> 16) & 0xff;
+    tx_buffer[3] = ((unsigned int)block >> 8) & 0xff;
+    tx_buffer[4] = block & 0xff;
     // crc
     crc = crc32(tx_buffer, 5);
     tx_buffer[5] = ((unsigned int)crc >> 24) & 0xff;
@@ -88,19 +89,19 @@ static void print_block_status(char* status)
 
 static void send_nak()
 {
-    send_block(0x15); // NAK
+    send_block(0x15, block_num); // NAK
     print_block_status("N");
 }
 
 static void send_ack()
 {
-    send_block(0x06); // ACK
+    send_block(0x06, block_num); // ACK
     print_block_status("A");
 }
 
 static void send_syn()
 {
-    send_block(0x16); // SYN
+    send_block(0x16, acked_block); // SYN
     print_block_status("S");
 }
 
@@ -139,14 +140,9 @@ void xmodem_state_send(void)
 
         rx_buffer_pos += bytes_read;
         i += bytes_read;
-
-        if (i == 0) {
-            // resend last response
-            //write(serial_write_fd, tx_buffer, TX_BUFFER_SIZE);
-        }
     }
 
-    //fprintf(stderr, "R\b");
+    fprintf(stderr, "R\b");
     //fprintf(stderr, "\nbytes read %u", i);
 
     if (rx_buffer_pos == RX_BUFFER_SIZE) {
@@ -216,26 +212,32 @@ void xmodem_state_check(void)
                     // blocks are synced
                     send_ack();
                     fprintf(stderr, " %u %u", rx_block_num, block_num);
+                    acked_block = block_num;
                     block_num++;
                     xmodem_write_block_to_disk(buf);
                     offset += BLOCK_SIZE;
                 } else if (rx_block_num > block_num) {
                     // blocks are not synced
-                    send_syn();
-                    fprintf(stderr, "%s syn %u %u", tx_buffer[0] == 0x06 ? "A" : "N", rx_block_num, block_num);
+                    if (acked_block == 0 && block_num == 0) {
+                        // nothing sent
+                        send_nak();
+                    } else {
+                        send_syn();
+                    }
+                    //fprintf(stderr, "%s syn %u %u", tx_buffer[0] == 0x06 ? "A" : "N", rx_block_num, block_num);
                     offset += BLOCK_SIZE;
                 } else {
                     // rx_block_num < block_num
                     // catching up from previous NAKs
                     send_ack();
-                    fprintf(stderr, " old %u %u", rx_block_num, block_num);
+                    //fprintf(stderr, " old %u %u", rx_block_num, block_num);
                     offset += BLOCK_SIZE;
                 }
             } else {
                 // probably aligned, sent NAK
                 if (rx_block_num == block_num) {
                     send_nak();
-                    fprintf(stderr, " crc %u %u", rx_block_num, block_num);
+                    //fprintf(stderr, " crc %u %u", rx_block_num, block_num);
                 }
                 // increment to prevent resyncing on this block
                 offset++;
@@ -251,8 +253,6 @@ void xmodem_state_check(void)
         rx_buffer[i] = rx_buffer[i + offset];
     }
     rx_buffer_pos -= offset;
-
-    //fprintf(stderr, "rx buffer end %u\n", rx_buffer_pos);
 
     state = SEND;
 }
