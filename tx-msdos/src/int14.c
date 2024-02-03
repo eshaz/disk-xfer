@@ -34,7 +34,7 @@ static const unsigned int baud_rates[] = {
     11520
 };
 
-unsigned char int14_init(unsigned long baud_rate, unsigned char* is_fossil)
+unsigned char int14_init(unsigned long baud_rate)
 {
     unsigned char baud = 0;
     baud_rate /= 10;
@@ -50,8 +50,6 @@ unsigned char int14_init(unsigned long baud_rate, unsigned char* is_fossil)
             fprintf(stderr, "\n * %lu", (unsigned long)baud_rates[baud] * 10);
         return 1;
     }
-
-    *is_fossil = baud > 7;
 
     // setup COM1 port
     if (baud > 9) {
@@ -75,70 +73,22 @@ unsigned char int14_init(unsigned long baud_rate, unsigned char* is_fossil)
     int86(0x14, &regs, &regs);
 
     // Load FOSSIL
-    if (*is_fossil) {
-        regs.x.dx = 0; // COM1
-        regs.h.ah = 0x04; // FOSSIL initialize
-        int86(0x14, &regs, &regs);
+    regs.x.dx = 0; // COM1
+    regs.h.ah = 0x04; // FOSSIL initialize
+    int86(0x14, &regs, &regs);
 
-        if (regs.x.ax != 0x1954) {
-            fprintf(stderr, "\nThis PC may not support: %lu baud or the FOSSIL driver may not be installed.", baud_rate * 10);
-            if (baud > 9)
-                fprintf(stderr, "\nTry a slower baud rate.");
-            return 1;
-        }
-
-        // Set RTS/CTS flow control
-        regs.h.ah = 0x0f;
-        regs.h.al = 0x02;
-        regs.x.dx = 0;
-        int86(0x14, &regs, &regs);
+    if (regs.x.ax != 0x1954) {
+        fprintf(stderr, "\nThis PC may not support: %lu baud or the required FOSSIL driver may not be installed.", baud_rate * 10);
+        return 1;
     }
 
+    // Set RTS/CTS flow control
+    regs.h.ah = 0x0f;
+    regs.h.al = 0x02;
+    regs.x.dx = 0;
+    int86(0x14, &regs, &regs);
+
     return 0;
-}
-
-/**
- * Send byte
- */
-void int14_send_byte(unsigned char b)
-{
-    regs.x.dx = 0;
-    regs.h.al = b;
-    regs.h.ah = 0x01;
-    int86(0x14, &regs, &regs);
-}
-
-/**
- * Get Port Status
- */
-short int14_get_status(void)
-{
-    // Get port status
-    regs.x.dx = 0;
-    regs.h.al = 0;
-    regs.h.ah = 3;
-    int86(0x14, &regs, &regs);
-    return regs.x.ax;
-}
-
-/**
- * Is data waiting?
- * Return 0 if nothing, 1 if data waiting.
- */
-unsigned short int14_data_waiting(void)
-{
-    return (int14_get_status() & 0x100);
-}
-
-/**
- * Read byte
- */
-unsigned char int14_read_byte(void)
-{
-    regs.x.dx = 0;
-    regs.h.ah = 0x02;
-    int86(0x14, &regs, &regs);
-    return regs.h.al;
 }
 
 /**

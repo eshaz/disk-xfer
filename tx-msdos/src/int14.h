@@ -16,28 +16,7 @@
 /**
  * Initialize port
  */
-unsigned char int14_init(unsigned long baud_rate, unsigned char* is_fossil);
-
-/**
- * Send byte
- */
-void int14_send_byte(unsigned char b);
-
-/**
- * Get Port Status
- */
-short int14_get_status(void);
-
-/**
- * Is data waiting?
- * Return 0 if nothing, 1 if data waiting.
- */
-unsigned short int14_data_waiting(void);
-
-/**
- * Read byte
- */
-unsigned char int14_read_byte(void);
+unsigned char int14_init(unsigned long baud_rate);
 
 unsigned short int14_write_block(char* buf, unsigned short buf_size);
 
