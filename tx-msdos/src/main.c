@@ -44,26 +44,31 @@ static int verify_md5()
     return memcmp(expected, actual, 16);
 }
 
+
 int main(int argc, char* argv[])
 {
     // start from a sector if we left off
+    char drive_letter = 'C';
     unsigned long start_sector = 0;
     unsigned long baud = 115200;
     char error = 0;
     if (argc >= 2)
-        error += atoul(argv[1], &start_sector);
+        drive_letter = argv[1][0];
     if (argc >= 3)
-        error += atoul(argv[2], &baud);
+        error += atoul(argv[2], &start_sector);
+    if (argc >= 4)
+        error += atoul(argv[3], &baud);
     if (error) {
-        fprintf(stderr, "\nUsage: tx [start_sector] [baud]");
+        fprintf(stderr, "\nUsage: tx [drive] [start_sector] [baud]");
         fprintf(stderr, "\n\nDefaults:");
+        fprintf(stderr, "\n* [drive]             `C` drive to transfer");
         fprintf(stderr, "\n* [start_sector]      `0` sector to start transfer");
         fprintf(stderr, "\n* [baud]         `115200` baud rate to set for COM1");
         return 1;
     }
-    if (verify_md5())
-        fprintf(stderr, "WARN: MD5 hashing does not work with this build!\n");
-    xmodem_send(start_sector, baud);
+     if (verify_md5())
+         fprintf(stderr, "WARN: MD5 hashing does not work with this build!\n");
+    xmodem_send(drive_letter, start_sector, baud);
     clean_up();
 
     return 0;

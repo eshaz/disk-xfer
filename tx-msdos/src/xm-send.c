@@ -43,7 +43,6 @@ unsigned char* rx_buffer;
 const char rx_buffer_size = 9;
 unsigned char rx_buffer_pos;
 
-unsigned char is_fossil = 0;
 unsigned int abort_timeout = 0;
 unsigned int resend_timeout = 0;
 
@@ -108,7 +107,7 @@ void clean_up()
 /**
  * XMODEM-512 send file - main entrypoint.
  */
-void xmodem_send(unsigned long start, unsigned long baud_rate)
+void xmodem_send(char drive_letter, unsigned long start, unsigned long baud_rate)
 {
     // ring buffer for sent data
     unsigned char i;
@@ -134,7 +133,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
     retry_bits = malloc_with_check(sector_size * 8);
 
     // disk structure
-    disk = create_disk();
+    disk = create_disk(drive_letter);
 
     // md5 hash
     md5 = malloc_with_check(sizeof(md5_ctx));
@@ -155,7 +154,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
         return;
     }
 
-    if (int14_init(baud_rate, &is_fossil)) {
+    if (int14_init(baud_rate)) {
         fprintf(stderr, "\nFATAL: Failed to initialize serial port.");
         clean_up();
         return;
@@ -213,8 +212,7 @@ void xmodem_send(unsigned long start, unsigned long baud_rate)
 
 static void flush_receive_buffer()
 {
-    while (int14_data_waiting())
-        int14_read_byte();
+    while (int14_read_block(rx_buffer, rx_buffer_size)) { }
 }
 
 /**
@@ -223,6 +221,7 @@ static void flush_receive_buffer()
 void xmodem_state_start()
 {
     unsigned int wait = 0;
+    char start_token;
     short wait_time;
 
     fprintf(stderr, "\nWaiting for receiver.");
@@ -235,15 +234,15 @@ void xmodem_state_start()
             delay(1);
             wait_time--;
 
-            if (int14_data_waiting() != 0) {
-                if (int14_read_byte() == 'C') {
-                    set_state(SEND);
-                    fprintf(stderr, "\nStarting Transfer!\n");
-                    delay(100);
-                    flush_receive_buffer();
-                    update_time_elapsed(disk, start_sector);
-                    return;
-                }
+            int14_read_block(&start_token, 1);
+
+            if (start_token == 'C') {
+                set_state(SEND);
+                fprintf(stderr, "\nStarting Transfer!\n");
+                delay(100);
+                flush_receive_buffer();
+                update_time_elapsed(disk, start_sector);
+                return;
             }
         }
         fprintf(stderr, ".");
@@ -370,16 +369,10 @@ void xmodem_state_send(void)
         }
     }
 
-    if (is_fossil) {
-        data_written = 0;
-        while (data_written < sizeof(SendPacket)) {
-            data_written += int14_write_block((char*)packet_ptr + data_written, sizeof(SendPacket) - data_written);
-        }
-    } else {
-        for (byte = 0; byte < sizeof(SendPacket); byte++) {
-            int14_send_byte(packet_ptr[byte]);
-        }
-    }
+    data_written = 0;
+    do {
+        data_written += int14_write_block((char*)packet_ptr + data_written, sizeof(SendPacket) - data_written);
+    } while (data_written < sizeof(SendPacket));
 
     // successful send
     resend_timeout = 0;

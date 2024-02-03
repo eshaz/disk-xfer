@@ -19,6 +19,7 @@ typedef struct {
 typedef struct {
     // device information
     unsigned char device_id;
+    char device_letter;
     CHS geometry;
     unsigned long total_sectors;
     unsigned long total_bytes;
@@ -33,7 +34,7 @@ typedef struct {
     ReadLog* read_log_tail; // 0 if no read logs
 } Disk;
 
-Disk* create_disk();
+Disk* create_disk(char drive_letter);
 
 void free_disk();
 

@@ -111,7 +111,7 @@ void print_update(
 #pragma code_seg("utils");
 static void print_drive_summary(Disk* disk)
 {
-    fprintf(stderr, "\n SOURCE : 0x%02X, C: drive", disk->device_id);
+    fprintf(stderr, "\n SOURCE : 0x%02X, %c: drive", disk->device_id, disk->device_letter);
 }
 
 #pragma code_seg("utils");

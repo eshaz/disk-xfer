@@ -68,11 +68,33 @@ void print_read_logs(Disk* disk)
  * Disk data structure
  */
 
-Disk* create_disk()
+Disk* create_disk(char drive_letter)
 {
     Disk* disk = malloc_with_check(sizeof(Disk));
     // device information
-    disk->device_id = 0x80; // default to C: drive
+    switch (drive_letter) {
+    case 'A':
+    case 'a':
+        disk->device_id = 0x00;
+        disk->device_letter = 'A';
+        break;
+    case 'B':
+    case 'b':
+        disk->device_id = 0x01;
+        disk->device_letter = 'B';
+        break;
+    case 'D':
+    case 'd':
+        disk->device_id = 0x81;
+        disk->device_letter = 'D';
+        break;
+    case 'C':
+    case 'c':
+    default:
+        disk->device_id = 0x80;
+        disk->device_letter = 'C';
+        break;
+    }
     disk->geometry.c = 0;
     disk->geometry.h = 0;
     disk->geometry.s = 0;

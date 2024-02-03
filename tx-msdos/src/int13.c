@@ -37,7 +37,9 @@ unsigned char int13_disk_geometry(Disk* disk)
     // Unpack disk geometry.
     geometry.c = regs.h.ch; // Get lower 8 bits of cylinder count.
     geometry.c |= ((regs.h.cl) & 0xC0) << 2; // Get upper two bits of cylinder count.
-    geometry.c += 1;
+    if (disk->device_id >= 0x80) {
+        geometry.c += 1;
+    }
     geometry.h = regs.h.dh;
     geometry.s = regs.h.cl & 0x3F; // mask off high order bits of cylinder count (upper 2-bits)
 
