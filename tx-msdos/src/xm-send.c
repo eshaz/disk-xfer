@@ -258,7 +258,7 @@ void xmodem_state_send(void)
     unsigned long current_packet_block;
     unsigned long tx_packet_current_block;
     unsigned char* packet_ptr;
-    unsigned char* buf;
+    unsigned char* data;
 
     unsigned long calced_crc;
     unsigned char read_error;
@@ -267,24 +267,21 @@ void xmodem_state_send(void)
 
     unsigned char* retry_bit;
     short byte;
+    unsigned char bit;
 
     // get tx packet if it's buffered
     current_packet_block = ((unsigned long)disk->current_sector - start_sector);
 
     tx_packet = tx_packets[current_packet_block % MAX_BUFFERED_SEND_PACKETS];
-    tx_packet_current_block = 0;
-    tx_packet_current_block |= (unsigned long)tx_packet->block0 << 24;
-    tx_packet_current_block |= (unsigned long)tx_packet->block1 << 16;
-    tx_packet_current_block |= (unsigned int)tx_packet->block2 << 8;
-    tx_packet_current_block |= tx_packet->block3;
 
     packet_ptr = (unsigned char*)tx_packet;
-    buf = &(tx_packet->data);
+    tx_packet_current_block = buf_to_ul(packet_ptr + 1);
+    data = &(tx_packet->data);
 
     // only read this block if we don't have it buffered
     if (tx_packet_current_block != current_packet_block) {
         // read the data
-        read_error = int13_read_sector(disk, buf);
+        read_error = int13_read_sector(disk, data);
         read_count++;
 
         // retry on error
@@ -300,14 +297,9 @@ void xmodem_state_send(void)
                 // add the previous read result into this buffer
                 for (byte = 0; byte < sector_size; byte++) {
                     retry_bit = retry_bits + byte * 8;
-                    retry_bit[0] += (buf[byte] & 0x01);
-                    retry_bit[1] += ((buf[byte] >> 1) & 0x01);
-                    retry_bit[2] += ((buf[byte] >> 2) & 0x01);
-                    retry_bit[3] += ((buf[byte] >> 3) & 0x01);
-                    retry_bit[4] += ((buf[byte] >> 4) & 0x01);
-                    retry_bit[5] += ((buf[byte] >> 5) & 0x01);
-                    retry_bit[6] += ((buf[byte] >> 6) & 0x01);
-                    retry_bit[7] += ((buf[byte] >> 7) & 0x01);
+                    for (bit = 0; bit < 8; bit++) {
+                        retry_bit[bit] += ((data[byte] >> bit) & 0x01);
+                    }
                 }
 
                 update_read_status(read_count);
@@ -318,7 +310,7 @@ void xmodem_state_send(void)
                     delay(READ_RETRY_DELAY_MS);
                 }
 
-                read_error = int13_read_sector(disk, buf);
+                read_error = int13_read_sector(disk, data);
                 read_count++;
             }
 
@@ -329,15 +321,10 @@ void xmodem_state_send(void)
                 // set the sent data to the consensus (average) of each bit in the read sectors
                 for (byte = 0; byte < sector_size; byte++) {
                     retry_bit = retry_bits + byte * 8;
-                    buf[byte] = 0;
-                    buf[byte] |= (retry_bit[0] >= (MAX_READ_RETRY_COUNT / 2));
-                    buf[byte] |= ((retry_bit[1] >= (MAX_READ_RETRY_COUNT / 2)) << 1);
-                    buf[byte] |= ((retry_bit[2] >= (MAX_READ_RETRY_COUNT / 2)) << 2);
-                    buf[byte] |= ((retry_bit[3] >= (MAX_READ_RETRY_COUNT / 2)) << 3);
-                    buf[byte] |= ((retry_bit[4] >= (MAX_READ_RETRY_COUNT / 2)) << 4);
-                    buf[byte] |= ((retry_bit[5] >= (MAX_READ_RETRY_COUNT / 2)) << 5);
-                    buf[byte] |= ((retry_bit[6] >= (MAX_READ_RETRY_COUNT / 2)) << 6);
-                    buf[byte] |= ((retry_bit[7] >= (MAX_READ_RETRY_COUNT / 2)) << 7);
+                    data[byte] = 0;
+                    for (bit = 0; bit < 8; bit++) {
+                        data[byte] |= ((retry_bit[bit] >= (MAX_READ_RETRY_COUNT / 2)) << bit);
+                    }
                 }
             } else {
                 // send the most recent read, and disregard any retry data
@@ -349,16 +336,10 @@ void xmodem_state_send(void)
         }
 
         tx_packet->soh_byte = SOH;
-        tx_packet->block0 = ((unsigned long)current_packet_block >> 24) & 0xff;
-        tx_packet->block1 = ((unsigned long)current_packet_block >> 16) & 0xff;
-        tx_packet->block2 = ((unsigned long)current_packet_block >> 8) & 0xff;
-        tx_packet->block3 = current_packet_block & 0xff;
+        ul_to_buf(current_packet_block, packet_ptr + 1);
 
         calced_crc = crc32(packet_ptr, sizeof(SendPacket) - 4);
-        tx_packet->crc0 = ((unsigned long)calced_crc >> 24) & 0xff;
-        tx_packet->crc1 = ((unsigned long)calced_crc >> 16) & 0xff;
-        tx_packet->crc2 = ((unsigned long)calced_crc >> 8) & 0xff;
-        tx_packet->crc3 = calced_crc & 0xff;
+        ul_to_buf(calced_crc, packet_ptr + sizeof(SendPacket) - 4);
 
         if (read_blocks > current_packet_block) {
             fprintf(stderr, "\nFATAL: Re-reading a block, hash will be incorrect. Read %lu. Rereading %lu.", read_blocks, current_packet_block);
@@ -466,11 +447,7 @@ read:
         rx_buffer_pos = 0;
 
         // synced on valid packet
-        rx_block_num = 0;
-        rx_block_num |= (unsigned long)rx_buffer[1] << 24;
-        rx_block_num |= (unsigned long)rx_buffer[2] << 16;
-        rx_block_num |= (unsigned int)rx_buffer[3] << 8;
-        rx_block_num |= rx_buffer[4];
+        rx_block_num = buf_to_ul(rx_buffer + 1);
 
         rx_packet->response_code = rx_buffer[0];
         rx_packet->block_num = rx_block_num;

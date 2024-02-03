@@ -44,7 +44,6 @@ static int verify_md5()
     return memcmp(expected, actual, 16);
 }
 
-
 int main(int argc, char* argv[])
 {
     // start from a sector if we left off
@@ -66,8 +65,8 @@ int main(int argc, char* argv[])
         fprintf(stderr, "\n* [baud]         `115200` baud rate to set for COM1");
         return 1;
     }
-     if (verify_md5())
-         fprintf(stderr, "WARN: MD5 hashing does not work with this build!\n");
+    if (verify_md5())
+        fprintf(stderr, "WARN: MD5 hashing does not work with this build!\n");
     xmodem_send(drive_letter, start_sector, baud);
     clean_up();
 

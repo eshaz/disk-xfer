@@ -43,6 +43,7 @@
  */
 
 #include "crc.h"
+#include "utils.h"
 #include <stdio.h>
 
 /* clang-format off */
@@ -117,12 +118,7 @@ unsigned char check_crc32(const void* buf, unsigned long size, const void* expec
     unsigned long actual_crc;
 
     actual_crc = crc32(buf, size);
-
-    expected_crc = 0;
-    expected_crc |= (unsigned long)p[0] << 24;
-    expected_crc |= (unsigned long)p[1] << 16;
-    expected_crc |= (unsigned int)p[2] << 8;
-    expected_crc |= p[3];
+    expected_crc = buf_to_ul(p);
 
     return expected_crc == actual_crc;
 }

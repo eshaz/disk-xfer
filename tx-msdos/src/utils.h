@@ -21,4 +21,8 @@ void update_time_elapsed(Disk* disk, unsigned long start_sector);
 
 void* malloc_with_check(unsigned long size);
 
+unsigned long buf_to_ul(const char* buf);
+
+void ul_to_buf(const unsigned long value, char* buf);
+
 #endif /* UTILS_H */

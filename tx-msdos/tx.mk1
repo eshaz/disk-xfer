@@ -1,5 +1,5 @@
 !define BLANK ""
-INSTRUCTION_SET=-2 # 80286
+INSTRUCTION_SET=-0 # 8086
 OPTIMIZATION=-osbhlp
 
 md5.obj : src\md5.c .AUTODEPEND
@@ -32,5 +32,5 @@ main.obj : src\main.c .AUTODEPEND
 tx.exe : md5.obj disk.obj utils.obj int13.obj int14.obj int1a.obj main.obj crc.obj xm-send.obj .AUTODEPEND
  @%write tx.lk1 FIL md5.obj,disk.obj,utils.obj,int13.obj,int14.obj,int1a.obj,main.obj,crc.obj,xm-send.obj
  @%append tx.lk1 
- *wlink name tx sys dos op m libf cstart_t op maxe=10 op q op symf op DOSSEG op STACK=512 @tx.lk1
+ *wlink name tx sys dos op m libf cstart_t op maxe=10 op q op DOSSEG op STACK=512 op el sort @tx.lk1
 

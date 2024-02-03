@@ -345,6 +345,24 @@ void save_report(Disk* disk, unsigned char* hash, unsigned long start_sector)
     fprintf(stderr, "\nNot saving report.");
 }
 
+unsigned long buf_to_ul(const char* buf)
+{
+    unsigned long result = 0;
+    result |= (unsigned long)buf[0] << 24;
+    result |= (unsigned long)buf[1] << 16;
+    result |= (unsigned int)buf[2] << 8;
+    result |= buf[3];
+    return result;
+}
+
+void ul_to_buf(const unsigned long value, char* buf)
+{
+    buf[0] = (unsigned long)value >> 24;
+    buf[1] = (unsigned long)value >> 16;
+    buf[2] = (unsigned long)value >> 8;
+    buf[3] = value;
+}
+
 int prompt_user(char* msg, char default_yes, char yes_key)
 {
     char prompt;
