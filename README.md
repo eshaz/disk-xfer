@@ -24,8 +24,20 @@ $ rx diskimage.img
 If everything is connected correctly, tx will send the data over the COM1: serial port to the destination machine in the requested image file.
 
 ## Developing
+
+### Prerequisites
+* Linux build environment
+* `make gcc dosbox`
+
+### Build `rx` and `tx`
+```sh
+make
+```
+
 ### Formatting
-* `clang-format -i -style=WebKit *.c *.h`
+```sh
+make format
+```
 
 ## Using Drivers for faster baud rates
 
@@ -50,6 +62,5 @@ If everything is connected correctly, tx will send the data over the COM1: seria
   * i.e. `tx 0 38400`
 
 ### No Drivers
-* `tx` can be run with out any additional drivers; however, the baud rate will limited to `9600`.
-* To use the maximum baud rate, run `tx 0 9600`
+* Making disk images without installing a FOSSIL driver is not supported.
 
