@@ -13,6 +13,72 @@
 
 static union REGS regs;
 
+static char* status_msgs[] = {
+    "no error", // 00
+    "bad command passed to driver", // 01
+    "address mark not found or bad sector", // 02
+    "diskette write protect error", // 03
+    "sector not found", // 04
+    "fixed disk reset failed", // 05
+    "diskette changed or removed", // 06
+    "bad fixed disk parameter table", // 07
+    "DMA overrun", // 08
+    "DMA access across 64k boundary", // 09
+    "bad fixed disk sector flag", // 0A
+    "bad fixed disk cylinder", // 0B
+    "unsupported track/invalid media", // 0C
+    "invalid number of sectors on fixed disk format", // 0D
+    "fixed disk controlled data address mark detected", // 0E
+    "fixed disk DMA arbitration level out of range", // 0F
+    "ECC/CRC error on disk read", // 10
+    "recoverable fixed disk data error, data fixed by ECC" // 11
+    "controller error (NEC for floppies)", // 20
+    "seek failure", // 40
+    "time out, drive not ready", // 80
+    "fixed disk drive not ready", // AA
+    "fixed disk undefined error", // BB
+    "fixed disk write fault on selected drive", // CC
+    "fixed disk status error/Error reg = 0", // E0
+    "sense operation failed" // FF
+};
+
+static void int13_set_status(Disk* disk)
+{
+    if (disk->status_code < 0x11) {
+        disk->status_msg = (char*)status_msgs[disk->status_code];
+    } else {
+        switch (disk->status_code) {
+        case 0x20:
+            disk->status_msg = status_msgs[0x12];
+            break;
+        case 0x40:
+            disk->status_msg = status_msgs[0x13];
+            break;
+        case 0x80:
+            disk->status_msg = status_msgs[0x14];
+            break;
+        case 0xAA:
+            disk->status_msg = status_msgs[0x15];
+            break;
+        case 0xBB:
+            disk->status_msg = status_msgs[0x16];
+            break;
+        case 0xCC:
+            disk->status_msg = status_msgs[0x17];
+            break;
+        case 0xE0:
+            disk->status_msg = status_msgs[0x18];
+            break;
+        case 0xFF:
+            disk->status_msg = status_msgs[0x19];
+            break;
+        default:
+            disk->status_msg = "unknown error";
+            break;
+        }
+    }
+}
+
 /**
  * Get disk Geometry
  */
@@ -84,70 +150,4 @@ unsigned char int13_reset_disk_system(Disk* disk)
 
     // 0 if successful, 1 if not.
     return regs.x.cflag;
-}
-
-static char* status_msgs[] = {
-    "no error", // 00
-    "bad command passed to driver", // 01
-    "address mark not found or bad sector", // 02
-    "diskette write protect error", // 03
-    "sector not found", // 04
-    "fixed disk reset failed", // 05
-    "diskette changed or removed", // 06
-    "bad fixed disk parameter table", // 07
-    "DMA overrun", // 08
-    "DMA access across 64k boundary", // 09
-    "bad fixed disk sector flag", // 0A
-    "bad fixed disk cylinder", // 0B
-    "unsupported track/invalid media", // 0C
-    "invalid number of sectors on fixed disk format", // 0D
-    "fixed disk controlled data address mark detected", // 0E
-    "fixed disk DMA arbitration level out of range", // 0F
-    "ECC/CRC error on disk read", // 10
-    "recoverable fixed disk data error, data fixed by ECC" // 11
-    "controller error (NEC for floppies)", // 20
-    "seek failure", // 40
-    "time out, drive not ready", // 80
-    "fixed disk drive not ready", // AA
-    "fixed disk undefined error", // BB
-    "fixed disk write fault on selected drive", // CC
-    "fixed disk status error/Error reg = 0", // E0
-    "sense operation failed" // FF
-};
-
-static void int13_set_status(Disk* disk)
-{
-    if (disk->status_code < 0x11) {
-        disk->status_msg = (char*)status_msgs[disk->status_code];
-    } else {
-        switch (disk->status_code) {
-        case 0x20:
-            disk->status_msg = status_msgs[0x12];
-            break;
-        case 0x40:
-            disk->status_msg = status_msgs[0x13];
-            break;
-        case 0x80:
-            disk->status_msg = status_msgs[0x14];
-            break;
-        case 0xAA:
-            disk->status_msg = status_msgs[0x15];
-            break;
-        case 0xBB:
-            disk->status_msg = status_msgs[0x16];
-            break;
-        case 0xCC:
-            disk->status_msg = status_msgs[0x17];
-            break;
-        case 0xE0:
-            disk->status_msg = status_msgs[0x18];
-            break;
-        case 0xFF:
-            disk->status_msg = status_msgs[0x19];
-            break;
-        default:
-            disk->status_msg = "unknown error";
-            break;
-        }
-    }
 }

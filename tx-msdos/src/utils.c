@@ -137,7 +137,7 @@ static void print_end_blocks(Disk* disk)
 }
 
 #pragma code_seg("utils");
-static void print_elapsed(Disk* disk, double time, double bps)
+static void print_elapsed(double time, double bps)
 {
     fprintf(stderr, "\n Elapsed: %u Hours, %u Minutes, %lu Seconds",
         (unsigned int)(time / 60 / 60),
@@ -161,7 +161,7 @@ static void print_estimated(Disk* disk, double bps)
 }
 
 #pragma code_seg("utils");
-static void print_hash(unsigned char* hash)
+static void print_hash(char* hash)
 {
     char i;
     fprintf(stderr, " MD5    : ");
@@ -170,7 +170,7 @@ static void print_hash(unsigned char* hash)
 }
 
 #pragma code_seg("utils");
-void print_status(Disk* disk, unsigned char* hash)
+void print_status(Disk* disk, char* hash)
 {
     fprintf(stderr, "\n");
     print_separator();
@@ -187,7 +187,7 @@ void print_status(Disk* disk, unsigned char* hash)
     fprintf(stderr, "\n");
 
     print_separator();
-    print_elapsed(disk, time_elapsed, (double)-1);
+    print_elapsed(time_elapsed, (double)-1);
     fprintf(stderr, "\n");
 
     print_separator();
@@ -264,7 +264,7 @@ static void print_report(Disk* disk, unsigned char* hash, unsigned long start_se
     fprintf(stderr, "Disk Image Report for...\n");
     print_separator();
     print_drive_summary(disk);
-    print_elapsed(disk, time_elapsed, bytes_per_second);
+    print_elapsed(time_elapsed, bytes_per_second);
     fprintf(stderr, "\n");
     print_separator();
 
@@ -312,7 +312,7 @@ static void print_report(Disk* disk, unsigned char* hash, unsigned long start_se
 }
 
 #pragma code_seg("utils");
-void save_report(Disk* disk, unsigned char* hash, unsigned long start_sector)
+void save_report(Disk* disk, char* hash, unsigned long start_sector)
 {
     FILE* fd;
     int error = 0;

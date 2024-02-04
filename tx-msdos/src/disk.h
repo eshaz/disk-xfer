@@ -36,7 +36,7 @@ typedef struct {
 
 Disk* create_disk(char drive_letter);
 
-void free_disk();
+void free_disk(Disk* disk);
 
 void set_sector(Disk* disk, unsigned long sector);
 
@@ -46,6 +46,6 @@ void add_read_log(Disk* disk, unsigned char retry_count);
 
 void update_read_log(Disk* disk, unsigned char retry_count);
 
-void print_read_logs();
+void print_read_logs(Disk* disk);
 
 #endif /* DISK_H */

@@ -36,7 +36,7 @@ Disk* disk;
 unsigned long completed_blocks = 0;
 unsigned long current_blocks = 0;
 unsigned long read_blocks = 0;
-unsigned char hash[16] = { 0 };
+char hash[16] = { 0 };
 md5_ctx* md5;
 
 unsigned char* rx_buffer;
@@ -55,6 +55,13 @@ unsigned int resend_timeout = 0;
 unsigned int sector_size = 512; // may be different if disk geometry specifies something else
 unsigned long start_sector = 0;
 unsigned char* retry_bits;
+
+static void set_state(ProtocolState new_state)
+{
+    if (state != ABORT || new_state == END) {
+        state = new_state;
+    }
+}
 
 static char catch_interrupt()
 {
@@ -408,13 +415,6 @@ static unsigned char read_next_block()
     } else {
         // fprintf(stderr, "no increment position %lu %lu %lu %d.\n", read_blocks, current_blocks, completed_blocks, buffer_size);
         return 0;
-    }
-}
-
-static void set_state(ProtocolState new_state)
-{
-    if (state != ABORT || new_state == END) {
-        state = new_state;
     }
 }
 
