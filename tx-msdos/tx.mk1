@@ -1,6 +1,6 @@
 !define BLANK ""
 INSTRUCTION_SET=-0 # 8086
-OPTIMIZATION=-osbhlp
+OPTIMIZATION=-osbhlkp
 
 md5.obj : src\md5.c .AUTODEPEND
  *wcc src\md5.c -i="$(%watcom)/h" $(INSTRUCTION_SET) $(OPTIMIZATION) -w4 -e10 -d1 -bt=dos -fo=.obj -mc

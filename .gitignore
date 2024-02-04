@@ -1,5 +1,12 @@
 *.obj
+*.OBJ
 *.exe
+*.EXE
 *.lk1
-*.map
+*.LK1
 *.o
+*.LOG
+*.MAP
+tx-msdos/build/WATCOM
+rx-unix/build
+.vscode
